@@ -1,8 +1,3 @@
-# The user agent client (UAC) sends SIP requests. The user agent server (UAS) receives requests and returns a SIP response. Unlike other network protocols that
-# fix the roles of client and server, e.g., in HTTP, in which a web browser only acts as a client, and never as a server, 
-# SIP requires both peers to implement both roles
-
-
 import socket
 import threading
 import time
@@ -14,37 +9,107 @@ PORT = 5060
 READ_SIZE = 1024
 SOCKET_TIMEOUT = 1
 
-class UDPTransport:
+class UDP:
 
-    def __init__(self, port):
+    def __init__(self, port, sendQueue, recvQueue, halt):
         self.port = port
+        self.sendQueue = sendQueue
+        self.recvQueue = recvQueue
 
-    def listener(self, recvQueue, stopThread):
+        self.halt = halt
+        self.listenerThread = threading.Thread(target=self.listener, args=(self.recvQueue, self.halt))
+        self.senderThread = threading.Thread(target=self.sender, args=(self.sendQueue, self.halt))
+
+    def start(self):
+        self.listenerThread.start()
+        self.senderThread.start()
+
+    def stop(self):
+        if(self.halt.is_set() == False):
+            self.halt.set()
+
+        self.listenerThread.join()
+        self.senderThread.join()
+
+    def listener(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(SOCKET_TIMEOUT)
         sock.bind("", self.port)
 
-        while(stopThread.isset() == False):
+        while(self.halt.isset() == False):
             try:
                 data, (srcAddress, srcPort) = sock.recvfrom(READ_SIZE)
                 # TODO implement functionality to ensure whole message content received.
-                recvQueue.put((srcAddress, srcPort, data))
+                self.recvQueue.put((srcAddress, srcPort, data))
             except socket.timeout:
                 continue
 
         sock.close()
 
-    def sender(self, sendQueue, stopThread):
+    def sender(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while(stopThread.isset() == False):
+        while(self.halt.isset() == False):
             try:
-                (targetAddress, targetPort, data) = sendQueue.get(timeout=1)
+                (targetAddress, targetPort, data) = self.sendQueue.get(timeout=1)
                 bytesSent = sock.sendto(data), (targetAddress, targetPort)
                 # TODO confirm that bytes sent matches data size
             except queue.Empty:
                 continue
 
-class Transport:
+class Transaction:
+
+    def __init__(self, outgoingQueue, halt):
+        self.incomingQueue = queue.Queue()
+        self.outgoingQueue = outgoingQueue
+        self.halt = halt
+        self.transactionThread = threading.Thread(target=self., args=(self.))
+        # TODO continue implementing
+
+    def transport():
+
+    def 
+
+
+class Sip:
+
+    def __init__(self, port):
+        self.port = port
+        self.sendQueue = queue.Queue()
+        self.recvQueue = queue.Queue()
+
+        self.halt = threading.Event()
+        self.UDP = UDP(port, self.sendQueue, self.recvQueue, self.halt)
+
+        self.SIPHandler = threading.Thread(target=self.handler(), arg=(self.halt))
+
+    def start(self):
+        self.UDP.start()
+        self.SIPHandler.start()
+
+    def stop(self):
+        self.halt.set()
+        self.UDP.stop()
+        self.SIPHandler.join()
+
+    def invite(self):
+        # TODO send invite request to handler
+
+    def cancel(self):
+        # TODO send cancel request to handler
+
+    def bye(self):
+        # TODO send bye request to handler
+
+    def handler(self, halt):
+        while(halt.isset() == False):
+            try:
+                (targetAddress, targetPort, data) = self.recvQueue.get(timeout=1)
+
+                # TODO pass data to matching transaction, or create a new transaction thread if one doesn't exist (or ignore if orphaned response)
+            except queue.Empty:
+                continue
+        
+
 
 
 # LOCAL_IP, LOCAL_PORT = "192.168.2.12", 5060
