@@ -15,28 +15,14 @@ class UDP:
         self.port = port
         self.sendQueue = sendQueue
         self.recvQueue = recvQueue
-
         self.halt = halt
-        self.listenerThread = threading.Thread(target=self.listener, args=(self.recvQueue, self.halt))
-        self.senderThread = threading.Thread(target=self.sender, args=(self.sendQueue, self.halt))
-
-    def start(self):
-        self.listenerThread.start()
-        self.senderThread.start()
-
-    def stop(self):
-        if(self.halt.is_set() == False):
-            self.halt.set()
-
-        self.listenerThread.join()
-        self.senderThread.join()
 
     def listener(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(SOCKET_TIMEOUT)
-        sock.bind("", self.port)
+        sock.bind(("", self.port))
 
-        while(self.halt.isset() == False):
+        while(self.halt.is_set() == False):
             try:
                 data, (srcAddress, srcPort) = sock.recvfrom(READ_SIZE)
                 # TODO implement functionality to ensure whole message content received.
@@ -48,7 +34,7 @@ class UDP:
 
     def sender(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while(self.halt.isset() == False):
+        while(self.halt.is_set() == False):
             try:
                 (targetAddress, targetPort, data) = self.sendQueue.get(timeout=1)
                 bytesSent = sock.sendto(data), (targetAddress, targetPort)
@@ -62,46 +48,55 @@ class Transaction:
         self.incomingQueue = queue.Queue()
         self.outgoingQueue = outgoingQueue
         self.halt = halt
-        self.transactionThread = threading.Thread(target=self., args=(self.))
+        #self.transactionThread = threading.Thread(target=self., args=(self.))
         # TODO continue implementing
 
-    def transport():
-
-    def 
+#    def transport():
+#
+#    def 
 
 
 class Sip:
 
-    def __init__(self, port):
+    def __init__(self, port=5060):
         self.port = port
+
         self.sendQueue = queue.Queue()
         self.recvQueue = queue.Queue()
-
         self.halt = threading.Event()
-        self.UDP = UDP(port, self.sendQueue, self.recvQueue, self.halt)
+        self.UDP = UDP(self.port, self.sendQueue, self.recvQueue, self.halt)
 
-        self.SIPHandler = threading.Thread(target=self.handler(), arg=(self.halt))
+        self.UDPListenerThread = threading.Thread(target=self.UDP.listener)
+        self.UDPSenderThread = threading.Thread(target=self.UDP.sender)
+        self.SIPHandlerThread = threading.Thread(target=self.handler)
 
     def start(self):
-        self.UDP.start()
-        self.SIPHandler.start()
+        self.SIPHandlerThread.start()
+        self.UDPListenerThread.start()
+        self.UDPSenderThread.start()
+        print("SIP service started on port: {}".format(self.port))
 
     def stop(self):
         self.halt.set()
-        self.UDP.stop()
-        self.SIPHandler.join()
+        self.SIPHandlerThread.join()
+        self.UDPListenerThread.join()
+        self.UDPSenderThread.join()
+        print("SIP service terminated")
 
-    def invite(self):
+    def invite(self, address, port):
+        print("Attempting to intitate a call with {}:{}".format(address, port))
         # TODO send invite request to handler
 
-    def cancel(self):
+    def cancel(self, address, port):
+        print("Call cancelled")
         # TODO send cancel request to handler
 
-    def bye(self):
+    def bye(self, address, port):
+        print("Call ended")
         # TODO send bye request to handler
 
-    def handler(self, halt):
-        while(halt.isset() == False):
+    def handler(self):
+        while(self.halt.is_set() == False):
             try:
                 (targetAddress, targetPort, data) = self.recvQueue.get(timeout=1)
 
@@ -109,8 +104,19 @@ class Sip:
             except queue.Empty:
                 continue
         
+SIPService = Sip()
+SIPService.start()
+command = input()
+while(command != "EXIT"):
+    if(command == "INVITE"):
+        SIPService.invite("Remotehost", 5060)
+    elif(command == "CANCEL"):
+        SIPService.cancel("Remotehost", 5060)
+    elif(command == "BYE"):
+        SIPService.bye("Remotehost", 5060)
+    command = input()
 
-
+SIPService.stop()
 
 # LOCAL_IP, LOCAL_PORT = "192.168.2.12", 5060
 # REMOTE_IP, REMOTE_PORT = "192.168.2.20", 5060
