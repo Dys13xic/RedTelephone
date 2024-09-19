@@ -6,8 +6,20 @@ import hashlib
 import queue
 
 PORT = 5060
-READ_SIZE = 1024
+READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
+
+
+def _getHeader(headers, targetLabel):
+    for header in headers:
+        if header.startswith(targetLabel + ": "):
+            content = header.split(" ", 1)[1].strip()
+            if(content.isdigit()):
+                content = int(content)
+            
+            return content
+        
+    return None
 
 class UDP:
 
@@ -25,10 +37,39 @@ class UDP:
         while(self.halt.is_set() == False):
             try:
                 data, (srcAddress, srcPort) = sock.recvfrom(READ_SIZE)
-                # TODO implement functionality to ensure whole message content received.
-                self.recvQueue.put((srcAddress, srcPort, data))
             except socket.timeout:
                 continue
+
+            # TODO should I add more validation of UDP message format?
+
+            startLineEncoded = data.split(b"\r\n", 1)[0]
+            headersEncoded, messageBodyEncoded = data.split(b"\r\n\r\n")
+
+            startLine = startLineEncoded.decode("utf-8")
+            headers = headersEncoded.decode("utf-8").split("\r\n")[1:]
+            contentLength = _getHeader(headers, "Content-Length")
+
+            messageType = "Request"
+            if(startLine.startswith("SIP/2.0")):
+                messageType = "Response"
+
+            if(contentLength):
+                # Long messages truncated to contentLength
+                if(len(messageBodyEncoded) > contentLength):
+                    messageBodyEncoded = messageBodyEncoded[:contentLength]
+                    print("Message truncated")
+
+                # Short messages discarded
+                elif(len(messageBodyEncoded) < contentLength):
+                    # 400 Bad Request response generated
+                    if(messageType == "Request"):
+                        # TODO Generate a 400 (Bad Request) response
+                        print("Bad Request")
+
+                    print("Message discarded")
+                    continue
+
+            self.recvQueue.put((srcAddress, srcPort, data))
 
         sock.close()
 
@@ -38,7 +79,7 @@ class UDP:
             try:
                 (targetAddress, targetPort, data) = self.sendQueue.get(timeout=1)
                 bytesSent = sock.sendto(data), (targetAddress, targetPort)
-                # TODO confirm that bytes sent matches data size
+                # TODO confirm that bytes sent matches data size (is this necessary? UDP packets are atomic, I suppose we should still check that data has gone out and log otherwise)
             except queue.Empty:
                 continue
 
@@ -74,7 +115,7 @@ class Sip:
         self.SIPHandlerThread.start()
         self.UDPListenerThread.start()
         self.UDPSenderThread.start()
-        print("SIP service started on port: {}".format(self.port))
+        print("SIP service started on port: {}\n".format(self.port))
 
     def stop(self):
         self.halt.set()
@@ -99,6 +140,10 @@ class Sip:
         while(self.halt.is_set() == False):
             try:
                 (targetAddress, targetPort, data) = self.recvQueue.get(timeout=1)
+
+                # TODO deconstruct data
+
+
 
                 # TODO pass data to matching transaction, or create a new transaction thread if one doesn't exist (or ignore if orphaned response)
             except queue.Empty:
