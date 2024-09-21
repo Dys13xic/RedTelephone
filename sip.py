@@ -5,10 +5,11 @@ import random
 import hashlib
 import queue
 
+# TODO implement whitelist
+#WHITELIST = ["127.0.0.1"]
 PORT = 5060
 READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
-
 
 def _getHeader(headers, targetLabel):
     for header in headers:
@@ -21,7 +22,9 @@ def _getHeader(headers, targetLabel):
         
     return None
 
-class UDP:
+# TODO Remove UDP Handler class and instead port methods to be part of the SIP class?
+# The sender and listener methods are sort of both catered specifically to SIP traffic...
+class UDPHandler:
 
     def __init__(self, port, sendQueue, recvQueue, halt):
         self.port = port
@@ -105,11 +108,65 @@ class Sip:
         self.sendQueue = queue.Queue()
         self.recvQueue = queue.Queue()
         self.halt = threading.Event()
-        self.UDP = UDP(self.port, self.sendQueue, self.recvQueue, self.halt)
+        self.UDPHandler = UDPHandler(self.port, self.sendQueue, self.recvQueue, self.halt)
 
-        self.UDPListenerThread = threading.Thread(target=self.UDP.listener)
-        self.UDPSenderThread = threading.Thread(target=self.UDP.sender)
+        self.UDPListenerThread = threading.Thread(target=self.UDPHandler.listener)
+        self.UDPSenderThread = threading.Thread(target=self.UDPHandler.sender)
         self.SIPHandlerThread = threading.Thread(target=self.handler)
+
+    @staticmethod
+    def _buildMessage(type, localAddress, remoteAddress, branch, fromTag="", toTag="", callID=None, cSeq=None, messageBody=""):
+
+        headers = {}
+        (localIP, localPort) = localAddress
+        (remoteIP, remotePort) = remoteAddress
+
+        # headers = {
+#     "Via": "SIP/2.0/UDP {}:{}".format(LOCAL_IP, LOCAL_PORT),
+#     "From": "<sip:IPCall@{}:{}>".format(LOCAL_IP, LOCAL_PORT),
+#     "To": "<sip:{}:{}>".format(REMOTE_IP, REMOTE_PORT),
+#     "Call-ID": "{}".format(callID),
+#     "CSeq": "{} {}".format(sequence, method),
+#     "Max-Forwards": "70"
+# }
+
+        # if(not branch):
+        #     branch = "z9hG4bK" + hashlib.md5((toTag + fromTag + headers["Call-ID"] + headers["Via"] + str(sequence)).encode()).hexdigest()
+
+        # toTag = hex(int(random.getrandbits(32)))[2:]
+        # fromTag = hex(int(random.getrandbits(32)))[2:]
+
+        if(not callID):
+            callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+
+        headers["Call-ID"] = callID
+        
+
+
+        if(type in ["INVITE", "ACK", "CANCLE", "BYE"]):
+            headers["From"] = "<sip:IPCall@{}:{}>".format(localIP, localPort, fromTag),
+            headers["To"] = "<sip:{}:{}>".format(remoteIP, remotePort, toTag)
+            headers["Max-Forwards"] = 70
+
+
+        # TODO
+        #  When the server transport receives a request over any transport, it
+        #    MUST examine the value of the "sent-by" parameter in the top Via
+        #    header field value.  If the host portion of the "sent-by" parameter
+        #    contains a domain name, or if it contains an IP address that differs
+        #    from the packet source address, the server MUST add a "received"
+        elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
+            headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag),
+            headers["To"] = "<sip:{}:{}>".format(localIP, localPort, toTag)
+
+        #TODO need to add method to CSeq
+
+        else:
+            print("{} Not implemented".format(type))
+            exit()
+
+
+
 
     def start(self):
         self.SIPHandlerThread.start()
