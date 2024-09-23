@@ -102,6 +102,8 @@ class Transaction:
 
 class Sip:
 
+    BRANCH_MAGIC_COOKIE = "z9hG4bK"
+
     def __init__(self, port=5060):
         self.port = port
 
@@ -115,39 +117,7 @@ class Sip:
         self.SIPHandlerThread = threading.Thread(target=self.handler)
 
     @staticmethod
-    def _buildMessage(type, localAddress, remoteAddress, branch, fromTag="", toTag="", callID=None, cSeq=None, messageBody=""):
-
-        headers = {}
-        (localIP, localPort) = localAddress
-        (remoteIP, remotePort) = remoteAddress
-
-        # headers = {
-#     "Via": "SIP/2.0/UDP {}:{}".format(LOCAL_IP, LOCAL_PORT),
-#     "From": "<sip:IPCall@{}:{}>".format(LOCAL_IP, LOCAL_PORT),
-#     "To": "<sip:{}:{}>".format(REMOTE_IP, REMOTE_PORT),
-#     "Call-ID": "{}".format(callID),
-#     "CSeq": "{} {}".format(sequence, method),
-#     "Max-Forwards": "70"
-# }
-
-        # if(not branch):
-        #     branch = "z9hG4bK" + hashlib.md5((toTag + fromTag + headers["Call-ID"] + headers["Via"] + str(sequence)).encode()).hexdigest()
-
-        # toTag = hex(int(random.getrandbits(32)))[2:]
-        # fromTag = hex(int(random.getrandbits(32)))[2:]
-
-        if(not callID):
-            callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
-
-        headers["Call-ID"] = callID
-        
-
-
-        if(type in ["INVITE", "ACK", "CANCLE", "BYE"]):
-            headers["From"] = "<sip:IPCall@{}:{}>".format(localIP, localPort, fromTag),
-            headers["To"] = "<sip:{}:{}>".format(remoteIP, remotePort, toTag)
-            headers["Max-Forwards"] = 70
-
+    def _buildMessage(type, localAddress, remoteAddress, branch, fromTag="", toTag="", callID=None, sequence=None, sequenceRequestType ="", messageBody=""):
 
         # TODO
         #  When the server transport receives a request over any transport, it
@@ -155,17 +125,62 @@ class Sip:
         #    header field value.  If the host portion of the "sent-by" parameter
         #    contains a domain name, or if it contains an IP address that differs
         #    from the packet source address, the server MUST add a "received"
+
+        (localIP, localPort) = localAddress
+        (remoteIP, remotePort) = remoteAddress
+
+        # TODO may need to handle ;received
+        if(not callID and type == "Invite"):
+            callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+        else:
+            print("Failed to include Call-ID")
+            exit()            
+            
+        headers = {}
+        headers["Call-ID"] = callID
+
+        if(type in ["INVITE", "ACK", "CANCLE", "BYE"]):            
+            startLine = "{} SIP:{}:{} SIP/2.0\r\n".format(type, remoteAddress, remotePort)
+
+            sequenceRequestType = type
+            if(not sequence):
+                sequence = 1
+
+            headers["Via"] = "SIP/2.0/UDP {}:{}".format(localAddress, localPort)
+            headers["From"] = "<sip:IPCall@{}:{}>".format(localIP, localPort, fromTag),
+            headers["To"] = "<sip:{}:{}>".format(remoteIP, remotePort, toTag)
+            headers["Max-Forwards"] = 70
+
+
         elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
+            startLine = "SIP/2.0 {}\r\n".format(type)
+
+            if (not sequence or not sequenceRequestType):
+                print("Failed to include CSeq")
+                exit()
+            
+            headers["Via"] = "SIP/2.0/UDP {}:{}".format(remoteAddress, remotePort)
             headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag),
             headers["To"] = "<sip:{}:{}>".format(localIP, localPort, toTag)
-
-        #TODO need to add method to CSeq
 
         else:
             print("{} Not implemented".format(type))
             exit()
 
+        if(not branch):
+            branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((toTag + fromTag + headers["Call-ID"] + headers["Via"] + str(sequence)).encode()).hexdigest()
+        
+        headers["Via"] += ";branch=" + branch
+        headers["CSeq"] = "{} {}".format(sequence, sequenceRequestType)
+        headers["Content-Length"] = len(messageBody.encode("utf-8"))
 
+        message = startLine
+        for key in headers.keys():
+            message += key + ": " + headers[key] + "\r\n"
+
+        message += "\r\n{}".format(messageBody)
+
+        return message.encode("utf-8")
 
 
     def start(self):
@@ -254,6 +269,7 @@ SIPService.stop()
 
 
 # request = requestLine
+
 
 # for key in headers.keys():
 #     request += key + ": " + headers[key] + "\r\n"
