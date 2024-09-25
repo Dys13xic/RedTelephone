@@ -6,7 +6,6 @@ import hashlib
 import queue
 
 # TODO implement whitelist
-#WHITELIST = ["127.0.0.1"]
 PORT = 5060
 READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
@@ -27,7 +26,8 @@ def _getHeader(headers, targetLabel):
 class UDPHandler:
 
     def __init__(self, port, sendQueue, recvQueue, halt):
-        self.port = port
+        self.localPort = port
+        self.localIP = None
         self.sendQueue = sendQueue
         self.recvQueue = recvQueue
         self.halt = halt
@@ -35,7 +35,14 @@ class UDPHandler:
     def listener(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(SOCKET_TIMEOUT)
-        sock.bind(("", self.port))
+        sock.bind(("", self.localPort))
+
+        try:
+            sock.connect(("8.8.8.8", 80))
+            self.localIP = sock.getsockname()[0]
+        except:
+            "Failed to determine local IP address"
+            exit()
 
         while(self.halt.is_set() == False):
             try:
@@ -86,19 +93,68 @@ class UDPHandler:
             except queue.Empty:
                 continue
 
+    def getLocalAddress(self):
+        return (self.localIP, self.localPort)
+
+
+class Dialog():
+    def __init__(self, state, callID, localTag, remoteTag, localSeq, remoteSeq, localURI, remoteURI, remoteTarget, secure=False, routeSet=[]):
+        self.state = state
+        self.callID = callID
+        self.localTag = localTag
+        self.remoteTag = remoteTag
+        self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
+        self.localSeq = localSeq
+        self.remoteSeq = remoteSeq
+        self.localURI = localURI
+        self.remoteURI = remoteURI
+        self.remoteTarget = remoteTarget
+        self.secure = secure
+        self.routeSet = routeSet
+
 class Transaction:
 
-    def __init__(self, outgoingQueue, halt):
-        self.incomingQueue = queue.Queue()
-        self.outgoingQueue = outgoingQueue
-        self.halt = halt
-        #self.transactionThread = threading.Thread(target=self., args=(self.))
-        # TODO continue implementing
+    def __init__(self, localAddress, remoteAddres, state, sequence, dialog=None):
+        self.localIP, self.localPort = localAddress
+        self.remoteIP, self.remotePort = remoteAddres
+        self.state = state
+        self.dialog = dialog
 
-#    def transport():
-#
-#    def 
+    # def buildRequest(method)
 
+    # def buildResponse(status)
+
+
+class ClientTransaction(Transaction):
+    def __init__(self, localAddress, remoteAddress, state, sequence=1, callID=None):
+        Transaction.__init__(localAddress, remoteAddress, state, sequence)
+        
+        if(not callID):
+            callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+
+        self.callID = callID
+        self.sequence = sequence
+
+    def invite():
+        # Send Invite
+        request = ClientTransaction.buildRequest("INVITE")
+
+        # Initate timers
+
+        # Await 1xx response
+
+        # Await 200 OK
+
+        # Create a seperate Transaction for Acking
+
+
+    def nonInvite(method):
+
+class ServerTransaction(Transaction):
+    def __init__(self, localAddress, remoteAddress, state, sequence=1, callID)
+
+
+    
 
 class Sip:
 
@@ -106,6 +162,8 @@ class Sip:
 
     def __init__(self, port=5060):
         self.port = port
+        self.transactions = []
+        self.dialogs = []
 
         self.sendQueue = queue.Queue()
         self.recvQueue = queue.Queue()
