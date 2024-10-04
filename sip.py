@@ -97,43 +97,69 @@ class UDPHandler:
         return (self.localIP, self.localPort)
 
 
-class Dialog():
-    def __init__(self, state, callID, localTag, remoteTag, localSeq, remoteSeq, localURI, remoteURI, remoteTarget, secure=False, routeSet=[]):
-        self.state = state
-        self.callID = callID
-        self.localTag = localTag
-        self.remoteTag = remoteTag
-        self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
-        self.localSeq = localSeq
-        self.remoteSeq = remoteSeq
-        self.localURI = localURI
-        self.remoteURI = remoteURI
-        self.remoteTarget = remoteTarget
-        self.secure = secure
-        self.routeSet = routeSet
+# class Dialog():
+#     UAS = 1
+#     UAC = 2
+
+#     def __init__(self, state, role, localSeq, remoteSeq, localURI, remoteURI, remoteTarget, callID=None, localTag=None, remoteTag=None):
+#         self.state = state
+#         self.role = role
+#         self.callID = #callID
+#         self.localTag = #localTag
+#         self.remoteTag = #remoteTag
+#         self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
+#         self.localSeq = localSeq
+#         self.remoteSeq = remoteSeq
+#         self.localURI = localURI
+#         self.remoteURI = remoteURI
+#         self.remoteTarget = remoteTarget
+#         #self.secure = secure
+#         #self.routeSet = routeSet
 
 class Transaction:
 
-    def __init__(self, localAddress, remoteAddres, state, sequence, dialog=None):
+    def __init__(self, localAddress, remoteAddres, state, dialog):
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddres
         self.state = state
         self.dialog = dialog
 
-    # def buildRequest(method)
-
-    # def buildResponse(status)
-
+        self.fromTag = None
+        self.toTag = None
+        self.sequence = None
 
 class ClientTransaction(Transaction):
-    def __init__(self, localAddress, remoteAddress, state, sequence=1, callID=None):
-        Transaction.__init__(localAddress, remoteAddress, state, sequence)
+    def __init__(self, localAddress, remoteAddress, state, dialog=None):
+        Transaction.__init__(localAddress, remoteAddress, state, dialog)
         
-        if(not callID):
-            callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+        if(self.dialog):
+            self.fromTag = dialog.getLocalTag()
+            self.toTag = dialog.getRemoteTag()
+            self.callID = dialog.getCallID()
+            self.sequence = #TODO is it remote or local Seq #?
+        
+        else:
+            self.fromTag = hex(int(random.getrandbits(32)))[2:]
+            self.callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+            self.sequence = 1
 
-        self.callID = callID
-        self.sequence = sequence
+        self.branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
+
+
+    def buildRequest(self, method):
+        if(method=="INVITE"):
+            Sip._buildMessage("INVITE", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), )
+
+        elif(method=="CANCEL"):
+
+        elif(method=="BYE"):
+            
+        elif(method=="ACK"):
+
+        else:
+            #TODO better error handling here
+            print("Unsupported Request Method")
+            exit()
 
     def invite():
         # Send Invite
@@ -152,6 +178,10 @@ class ClientTransaction(Transaction):
 
 class ServerTransaction(Transaction):
     def __init__(self, localAddress, remoteAddress, state, sequence=1, callID)
+        
+
+    def buildResponse(status):
+
 
 
     
