@@ -4,6 +4,7 @@ import time
 import random
 import hashlib
 import queue
+import json
 
 # TODO implement whitelist
 PORT = 5060
@@ -17,10 +18,74 @@ def _getHeader(headers, targetLabel):
             content = header.split(" ", 1)[1].strip()
             if(content.isdigit()):
                 content = int(content)
-            
+
             return content
-        
+
     return None
+
+def _parseParameters(parameters):
+    parameterDict = {}
+    for parameter in parameters:
+        parameterList = parameter.split("=", 1)
+        label = parameterList[0]
+        content = parameterList[1] if len(parameterList) == 2 else ""
+        parameterDict[label] = content
+
+    return parameterDict
+
+def _parseHeader(label, headerDict):
+    content = headerDict[label]
+
+    if label == "CSeq":
+        sequence, method = content.strip().split(" ")
+        subHeadingDict = {"sequence": int(sequence), "method": method}
+
+    elif label in ["From", "To"]:
+        temp = content.strip().split(";")
+        contact = temp[0]
+        parameters = temp[1:] if len(temp) >= 2 else []
+        subHeadingDict = _parseParameters(parameters)
+        subHeadingDict["contact"] = contact
+
+    elif label == "Via":
+        protocol, temp = content.strip().split(" ", 1)
+        tempList = temp.split(";")
+        address = tempList[0]
+        parameters = tempList[1:]
+        subHeadingDict = _parseParameters(parameters)
+        subHeadingDict["protocol"] = protocol
+        subHeadingDict["address"] = address
+    
+    else:
+        print("Unsupported header")
+        exit()
+
+    headerDict[label] = subHeadingDict
+
+def _parseMessage(data, deepHeaderParse=False):
+    startLineEncoded = data.split(b"\r\n", 1)[0]
+    headersEncoded, messageBodyEncoded = data.split(b"\r\n\r\n")
+    
+    startLine = startLineEncoded.decode("utf-8")
+    messageBody = messageBodyEncoded.decode("utf-8")
+    headers = headersEncoded.decode("utf-8").split("\r\n")[1:]
+
+    messageType = "Request"
+    if(startLine.startswith("SIP/2.0")):
+        messageType = "Response"
+
+    headerDict = {}
+    for header in headers:
+        label, content = header.split(": ", 1)
+        if(content.strip().isdigit()):
+            content = int(content.strip())
+        headerDict[label] = content
+
+    if(deepHeaderParse):
+        for label in ["Via", "From", "To", "CSeq"]:
+            _parseHeader(label, headerDict)
+
+    return {"messageType": messageType, "startLine": startLine, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBody)}
 
 # TODO Remove UDP Handler class and instead port methods to be part of the SIP class?
 # The sender and listener methods are sort of both catered specifically to SIP traffic...
@@ -31,7 +96,7 @@ class UDPHandler:
         self.localIP = None
         self.recvQueue = recvQueue
         self.halt = halt
-        # self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def listener(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -66,6 +131,8 @@ class UDPHandler:
             messageType = "Request"
             if(startLine.startswith("SIP/2.0")):
                 messageType = "Response"
+
+
 
             if(contentLength):
                 # Long messages truncated to contentLength
@@ -115,20 +182,30 @@ class UDPHandler:
 #         #self.routeSet = routeSet
 
 class Transaction:
-    def __init__(self, transactionUser, localAddress, remoteAddres, state, dialog):
+    def __init__(self, transactionUser, localAddress, remoteAddress, state, dialog):
         self.transactionUser = transactionUser
         self.localIP, self.localPort = localAddress
-        self.remoteIP, self.remotePort = remoteAddres
+        self.remoteIP, self.remotePort = remoteAddress
         self.state = state
         self.dialog = dialog
 
         self.fromTag = None
         self.toTag = None
+        self.branch = None
         self.sequence = None
 
+        self.recvQueue = queue.Queue()
+
+    def getRecvQueue(self):
+        return self.recvQueue
+    
+    def getBranch(self):
+        return self.branch
+
 class ClientTransaction(Transaction):
-    def __init__(self, localAddress, remoteAddress, state, dialog=None):
-        Transaction.__init__(localAddress, remoteAddress, state, dialog)
+    def __init__(self, transactionUser, localAddress, remoteAddress, state, dialog=None):
+        super().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
+        #Transaction().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
         
         if(self.dialog):
             self.fromTag = dialog.getLocalTag()
@@ -138,6 +215,7 @@ class ClientTransaction(Transaction):
         
         else:
             self.fromTag = hex(int(random.getrandbits(32)))[2:]
+            self.toTag = ""
             self.callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
             self.sequence = 1
 
@@ -145,8 +223,7 @@ class ClientTransaction(Transaction):
         self.transactionUser.addClientTransaction(self)
 
     def buildRequest(self, method):
-        if(method=="INVITE"):
-            Sip._buildMessage("INVITE", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, )
+        return Sip._buildMessage("INVITE", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag)
 
         # elif(method=="CANCEL"):
 
@@ -154,27 +231,28 @@ class ClientTransaction(Transaction):
             
         # elif(method=="ACK"):
 
-        else:
-            #TODO better error handling here
-            print("Unsupported Request Method")
-            exit()
+        # else:
+        #     #TODO better error handling here
+        #     print("Unsupported Request Method")
+        #     exit()
 
     # def transmit(self, attempts=1):
 
 
 
 
-    def invite(self):
+    def invite(self, remoteAddress):
         # Send Invite
-        request = ClientTransaction.buildRequest("INVITE")
+        request = self.buildRequest("INVITE")
+        self.transactionUser.getUDPHandler().sender(remoteAddress, request)
 
         # Initate timers
-        timeoutTimer = threading.Timer(64 * T1) # If still in calling state when timeoutTimer triggers, inform TU of timeout
+        # timeoutTimer = threading.Timer(64 * T1) # If still in calling state when timeoutTimer triggers, inform TU of timeout
         
-        self.transactionUser.getUDPHandler()
-        while self.state == "Calling" and timeoutTimer.is_alive():
-                retransmitTimer = threading.Timer(pow(2, attempt) * T1) # If fires, client transaction must retransmit request and reset timer
-                attempt += 1
+        # self.transactionUser.getUDPHandler()
+        # while self.state == "Calling" and timeoutTimer.is_alive():
+        #         retransmitTimer = threading.Timer(pow(2, attempt) * T1) # If fires, client transaction must retransmit request and reset timer
+        #         attempt += 1
 
 
 
@@ -208,7 +286,7 @@ class Sip:
     def __init__(self, port=5060):
         self.port = port
         self.clientTransactions = {}
-        self.dialogs = []
+        self.dialogs = {}
 
         self.recvQueue = queue.Queue()
         self.halt = threading.Event()
@@ -282,10 +360,13 @@ class Sip:
         print("SIP service terminated")
 
     def invite(self, address, port):
+        transaction = ClientTransaction(self, self.UDPHandler.getLocalAddress(), (address, port), "Calling")
+        transaction.invite((address, port))
         print("Attempting to intitate a call with {}:{}".format(address, port))
-        # TODO send invite request to handler
-        inviteRequest = SIPService._buildMessage("INVITE", ("10.13.0.23", 5060), (address, port))
-        self.UDPHandler.sender(inviteRequest, (address, port))
+
+        # # TODO send invite request to handler
+        # inviteRequest = SIPService._buildMessage("INVITE", ("10.13.0.23", 5060), (address, port))
+        # self.UDPHandler.sender(inviteRequest, (address, port))
 
     # def cancel(self, address, port):
     #     print("Call cancelled")
@@ -299,19 +380,36 @@ class Sip:
         while(self.halt.is_set() == False):
             try:
                 (targetAddress, targetPort, data) = self.recvQueue.get(timeout=1)
-
-                print(data)
-
-
-
-                # TODO pass data to matching transaction, or create a new transaction thread if one doesn't exist (or ignore if orphaned response)
             except queue.Empty:
                 continue
-        
+
+            # Parse message
+            message = _parseMessage(data, True)
+            print(json.dumps(message, indent=4))
+
+            # Pass to matching transaction
+            if(message["messageType"] == "Response"):
+                print(message["headers"]["Via"])
+                key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
+                if(key in self.clientTransactions):
+                    self.clientTransactions[key].getRecvQueue().put(message)
+                
+                # Ignore orphansed response
+                else:
+                    continue
+            
+            # TODO Create new transaction thread if one doesn't exist
+            #elif(message["messageType"] == "Request"):
+
+            else:
+                print("Unsupported message type")
+                exit()
+
+
+
 SIPService = Sip()
-SIPService.getUDPHandler().listener()
-# SIPService.start()
-# SIPService.invite("10.13.0.6", 5060)
+SIPService.start()
+SIPService.invite("10.13.0.6", 5060)
 
 # command = input()
 # while(command != "EXIT"):
