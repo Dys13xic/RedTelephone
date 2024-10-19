@@ -193,6 +193,7 @@ class Transaction:
         self.toTag = None
         self.branch = None
         self.sequence = None
+        self.sequenceMethod = None
 
         self.recvQueue = queue.Queue()
 
@@ -201,9 +202,12 @@ class Transaction:
     
     def getBranch(self):
         return self.branch
+    
+    def getSequenceMethod(self):
+        return self.sequenceMethod
 
 class ClientTransaction(Transaction):
-    def __init__(self, transactionUser, localAddress, remoteAddress, state, dialog=None):
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
         super().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
         #Transaction().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
         
@@ -220,21 +224,11 @@ class ClientTransaction(Transaction):
             self.sequence = 1
 
         self.branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
+        self.sequenceMethod = requestMethod
         self.transactionUser.addClientTransaction(self)
 
     def buildRequest(self, method):
-        return Sip._buildMessage("INVITE", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag)
-
-        # elif(method=="CANCEL"):
-
-        # elif(method=="BYE"):
-            
-        # elif(method=="ACK"):
-
-        # else:
-        #     #TODO better error handling here
-        #     print("Unsupported Request Method")
-        #     exit()
+        return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag)
 
     # def transmit(self, attempts=1):
 
@@ -299,7 +293,8 @@ class Sip:
         return self.UDPHandler
 
     def addClientTransaction(self, transaction):
-        self.clientTransactions[transaction.getBranch()] = transaction
+        self.clientTransactions[transaction.getBranch() + transaction.getSequenceMethod()] = transaction
+
 
     @staticmethod
     def _buildMessage(type, localAddress, remoteAddress, branch, callID, sequence, sequenceRequestType, fromTag, toTag="", messageBody=""):
@@ -360,7 +355,7 @@ class Sip:
         print("SIP service terminated")
 
     def invite(self, address, port):
-        transaction = ClientTransaction(self, self.UDPHandler.getLocalAddress(), (address, port), "Calling")
+        transaction = ClientTransaction(self, "INVITE", self.UDPHandler.getLocalAddress(), (address, port), "Calling")
         transaction.invite((address, port))
         print("Attempting to intitate a call with {}:{}".format(address, port))
 
