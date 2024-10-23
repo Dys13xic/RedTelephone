@@ -10,7 +10,8 @@ import json
 PORT = 5060
 READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
-T1 = 0.5 # Estimate of RTT (default 500 milliseconds)
+NANOSECONDS_IN_MILISECONDS = 1000000
+T1 = 500 * NANOSECONDS_IN_MILISECONDS # Estimate of RTT (default 500 milliseconds or in this case 500,000,000 nanoseconds)
 
 def _getHeader(headers, targetLabel):
     for header in headers:
@@ -206,10 +207,28 @@ class Transaction:
     def getSequenceMethod(self):
         return self.sequenceMethod
 
+    def passToTransport(self, outgoingMsg):
+        currentTime = time.time_ns()
+        transactionTimeout = currentTime + (64 * T1)
+        attempts = 0
+
+        while(currentTime < transactionTimeout and self.getRecvQueue().empty()):
+            self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
+
+            retransmitTimeout = currentTime + (pow(2, attempts) * T1)
+            while(currentTime < retransmitTimeout and self.getRecvQueue().empty()):
+                    currentTime = time.time_ns()
+
+            attempts += 1
+
+        if self.getRecvQueue().empty():
+            return None
+
+        return self.getRecvQueue().get()
+
 class ClientTransaction(Transaction):
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
         super().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
-        #Transaction().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
         
         if(self.dialog):
             self.fromTag = dialog.getLocalTag()
@@ -235,10 +254,18 @@ class ClientTransaction(Transaction):
 
 
 
-    def invite(self, remoteAddress):
-        # Send Invite
+    def invite(self):
         request = self.buildRequest("INVITE")
-        self.transactionUser.getUDPHandler().sender(remoteAddress, request)
+        response = self.passToTransport(request)
+
+        # Set state according to response
+        if(response):
+            print(response)
+        # Transaction timed out
+        else:
+            self.state == "Terminated"
+            #TODO kill transaction
+
 
         # Initate timers
         # timeoutTimer = threading.Timer(64 * T1) # If still in calling state when timeoutTimer triggers, inform TU of timeout
@@ -356,7 +383,7 @@ class Sip:
 
     def invite(self, address, port):
         transaction = ClientTransaction(self, "INVITE", self.UDPHandler.getLocalAddress(), (address, port), "Calling")
-        transaction.invite((address, port))
+        transaction.invite()
         print("Attempting to intitate a call with {}:{}".format(address, port))
 
         # # TODO send invite request to handler
@@ -384,12 +411,12 @@ class Sip:
 
             # Pass to matching transaction
             if(message["messageType"] == "Response"):
-                print(message["headers"]["Via"])
+                #print(message["headers"]["Via"])
                 key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
                 if(key in self.clientTransactions):
                     self.clientTransactions[key].getRecvQueue().put(message)
                 
-                # Ignore orphansed response
+                # Ignore orphaned response
                 else:
                     continue
             
