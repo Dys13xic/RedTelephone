@@ -71,10 +71,6 @@ def _parseMessage(data, deepHeaderParse=False):
     messageBody = messageBodyEncoded.decode("utf-8")
     headers = headersEncoded.decode("utf-8").split("\r\n")[1:]
 
-    messageType = "Request"
-    if(startLine.startswith("SIP/2.0")):
-        messageType = "Response"
-
     headerDict = {}
     for header in headers:
         label, content = header.split(": ", 1)
@@ -86,7 +82,24 @@ def _parseMessage(data, deepHeaderParse=False):
         for label in ["Via", "From", "To", "CSeq"]:
             _parseHeader(label, headerDict)
 
-    return {"messageType": messageType, "startLine": startLine, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBody)}
+    if(startLine.startswith("SIP/2.0")):
+        version, code, label = startLine.split(" ", 2)
+        messageDict = {"messageType": "Response", "statusCode": code, "statusLabel": label, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBodyEncoded)}
+
+
+    elif(startLine.endswith("SIP/2.0")):
+        method, requestURI, version = startLine.split(" ", 2)
+        messageDict = {"messageType": "Request", "method": method, "requestURI": requestURI}
+
+    else:
+        print("Malformed message")
+        exit()
+
+    messageDict["headers"] = headerDict
+    messageDict["messageBody"] = messageBody
+    messageDict["messageBodyLength"] = len(messageBodyEncoded)
+    
+    return messageDict
 
 # TODO Remove UDP Handler class and instead port methods to be part of the SIP class?
 # The sender and listener methods are sort of both catered specifically to SIP traffic...
@@ -249,11 +262,6 @@ class ClientTransaction(Transaction):
     def buildRequest(self, method):
         return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag)
 
-    # def transmit(self, attempts=1):
-
-
-
-
     def invite(self):
         request = self.buildRequest("INVITE")
         response = self.passToTransport(request)
@@ -265,16 +273,6 @@ class ClientTransaction(Transaction):
         else:
             self.state == "Terminated"
             #TODO kill transaction
-
-
-        # Initate timers
-        # timeoutTimer = threading.Timer(64 * T1) # If still in calling state when timeoutTimer triggers, inform TU of timeout
-        
-        # self.transactionUser.getUDPHandler()
-        # while self.state == "Calling" and timeoutTimer.is_alive():
-        #         retransmitTimer = threading.Timer(pow(2, attempt) * T1) # If fires, client transaction must retransmit request and reset timer
-        #         attempt += 1
-
 
 
 
