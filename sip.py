@@ -17,7 +17,7 @@ def _getHeader(headers, targetLabel):
     for header in headers:
         if header.startswith(targetLabel + ": "):
             content = header.split(" ", 1)[1].strip()
-            if(content.isdigit()):
+            if content.isdigit():
                 content = int(content)
 
             return content
@@ -46,7 +46,7 @@ def _parseHeader(label, headerDict):
         contact = temp[0]
         parameters = temp[1:] if len(temp) >= 2 else []
         subHeadingDict = _parseParameters(parameters)
-        subHeadingDict["contact"] = contact
+        subHeadingDict["URI"] = contact
 
     elif label == "Via":
         protocol, temp = content.strip().split(" ", 1)
@@ -74,17 +74,17 @@ def _parseMessage(data, deepHeaderParse=False):
     headerDict = {}
     for header in headers:
         label, content = header.split(": ", 1)
-        if(content.strip().isdigit()):
+        if content.strip().isdigit():
             content = int(content.strip())
         headerDict[label] = content
 
-    if(deepHeaderParse):
+    if deepHeaderParse:
         for label in ["Via", "From", "To", "CSeq"]:
             _parseHeader(label, headerDict)
 
     if(startLine.startswith("SIP/2.0")):
         version, code, label = startLine.split(" ", 2)
-        messageDict = {"messageType": "Response", "statusCode": code, "statusLabel": label, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBodyEncoded)}
+        messageDict = {"messageType": "Response", "statusCode": int(code), "statusLabel": label, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBodyEncoded)}
 
 
     elif(startLine.endswith("SIP/2.0")):
@@ -176,27 +176,39 @@ class UDPHandler:
         return (self.localIP, self.localPort)
 
 
-# class Dialog():
-#     UAS = 1
-#     UAC = 2
+class Dialog():
+    UAS = 1
+    UAC = 2
 
-#     def __init__(self, state, role, localSeq, remoteSeq, localURI, remoteURI, remoteTarget, callID=None, localTag=None, remoteTag=None):
-#         self.state = state
-#         self.role = role
-#         self.callID = #callID
-#         self.localTag = #localTag
-#         self.remoteTag = #remoteTag
-#         self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
-#         self.localSeq = localSeq
-#         self.remoteSeq = remoteSeq
-#         self.localURI = localURI
-#         self.remoteURI = remoteURI
-#         self.remoteTarget = remoteTarget
-#         #self.secure = secure
-#         #self.routeSet = routeSet
+    def __init__(self, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
+        # self.state = state
+        self.role = role
+        self.callID = callID
+        self.localTag = localTag
+        self.remoteTag = remoteTag
+        self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
+        self.localSeq = localSeq
+        self.remoteSeq = remoteSeq
+        self.localURI = localURI
+        self.remoteURI = remoteURI
+        self.remoteTarget = remoteTarget
+        #self.secure = secure
+        #self.routeSet = routeSet
+
+    def getLocalTag(self):
+        return self.localTag
+
+    def getRemoteTag(self):
+        return self.remoteTag
+    
+    def getCallID(self):
+        return self.callID
+
+    def getLocalSeq(self):
+        return self.localSeq
 
 class Transaction:
-    def __init__(self, transactionUser, localAddress, remoteAddress, state, dialog):
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog):
         self.transactionUser = transactionUser
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddress
@@ -207,9 +219,10 @@ class Transaction:
         self.toTag = None
         self.branch = None
         self.sequence = None
-        self.sequenceMethod = None
+        self.requestMethod = requestMethod
 
         self.recvQueue = queue.Queue()
+        self.thread = threading.Thread(target=self.handler)
 
     def getRecvQueue(self):
         return self.recvQueue
@@ -217,8 +230,20 @@ class Transaction:
     def getBranch(self):
         return self.branch
     
-    def getSequenceMethod(self):
-        return self.sequenceMethod
+    def getRequestMethod(self):
+        return self.requestMethod
+
+    def getThread(self):
+        return self.thread
+
+    def handler(self):
+        if(self.requestMethod == "INVITE"):
+            self.invite()
+
+        elif(self.requestMethod == "ACK"):
+            self.ack()
+
+        #elif(self.requestMethod == "")
 
     def passToTransport(self, outgoingMsg):
         currentTime = time.time_ns()
@@ -237,11 +262,16 @@ class Transaction:
         if self.getRecvQueue().empty():
             return None
 
+        self.state = "Proceeding"
         return self.getRecvQueue().get()
+
+    def terminate(self):
+        self.state = "Terminated"
+        self.transactionUser.removeClientTransaction(self)
 
 class ClientTransaction(Transaction):
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
-        super().__init__(transactionUser, localAddress, remoteAddress, state, dialog)
+        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, state, dialog)
         
         if(self.dialog):
             self.fromTag = dialog.getLocalTag()
@@ -256,35 +286,67 @@ class ClientTransaction(Transaction):
             self.sequence = 1
 
         self.branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
-        self.sequenceMethod = requestMethod
         self.transactionUser.addClientTransaction(self)
 
     def buildRequest(self, method):
-        return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag)
+        return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag, self.toTag)
 
     def invite(self):
         request = self.buildRequest("INVITE")
         response = self.passToTransport(request)
 
-        # Set state according to response
-        if(response):
-            print(response)
+        # TODO handle possible transport error during request
+
+        if response:
+            # Await non-Provisional response
+            while(100 <= response["statusCode"] <= 199):
+                 response = self.getRecvQueue().get()
+
+            self.toTag = response['headers']['To']['tag']
+            
+            # Successfully opened dialog
+            if 200 <= response["statusCode"] <= 299:
+                self.dialog = Dialog(Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
+
+                # Ack in seperate transaction
+                ackTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
+                ackTransaction.getThread().start()
+                self.terminate()
+
+            # Failed to open dialog
+            elif 300 <= response['statusCode'] <= 699:
+                self.state = "Completed"
+                self.ack()
+
+                currentTime = time.time_ns()
+                terminatedTimeout = currentTime + (32000 * NANOSECONDS_IN_MILISECONDS)
+
+                # Answer duplicate final responses for 32 seconds before terminating transaction
+                while(currentTime < terminatedTimeout):
+                    if self.getRecvQueue().empty() == False:
+                        response = self.getRecvQueue().get()
+                        if 300 <= response['statusCode'] <= 699:
+                            self.ack()
+                        else:
+                            # TODO Maybe return a malformed response? *at the very least shouldn't cause program exit
+                            print("Invalid status code")
+                            exit()
+                    
+                    currentTime = time.time_ns()
+
+            else:
+                # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
+                print("Invalid response code")
+                exit()
+
         # Transaction timed out
         else:
-            self.state == "Terminated"
-            #TODO kill transaction
+            self.terminate
 
-
-
-
-
-
-        # Await 1xx response
-
-        # Await 200 OK
-
-        # Create a seperate Transaction for Acking
-
+    def ack(self):
+        outgoingMsg = self.buildRequest("ACK")
+        self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
+        self.terminate()
 
     # def nonInvite(method):
 
@@ -318,8 +380,10 @@ class Sip:
         return self.UDPHandler
 
     def addClientTransaction(self, transaction):
-        self.clientTransactions[transaction.getBranch() + transaction.getSequenceMethod()] = transaction
+        self.clientTransactions[transaction.getBranch() + transaction.getRequestMethod()] = transaction
 
+    def removeClientTransaction(self, transaction):
+        del self.clientTransactions[transaction.getBranch() + transaction.getRequestMethod()]
 
     @staticmethod
     def _buildMessage(type, localAddress, remoteAddress, branch, callID, sequence, sequenceRequestType, fromTag, toTag="", messageBody=""):
@@ -334,16 +398,22 @@ class Sip:
         (localIP, localPort) = localAddress
         (remoteIP, remotePort) = remoteAddress
 
+        if(toTag):
+            toTag = ";tag=" + toTag
+
         # TODO may need to handle ;received            
         headers = {"Call-ID": callID}
 
         if(type in ["INVITE", "ACK", "CANCLE", "BYE"]):            
             startLine = "{} SIP:{}:{} SIP/2.0\r\n".format(type, remoteIP, remotePort)
             headers["Via"] = "SIP/2.0/UDP {}:{}".format(localIP, localPort)
-            headers["From"] = "<sip:IPCall@{}:{}>".format(localIP, localPort, fromTag)
-            headers["To"] = "<sip:{}:{}>".format(remoteIP, remotePort, toTag)
+            headers["From"] = "<sip:IPCall@{}:{}>;tag={}".format(localIP, localPort, fromTag)
+            headers["To"] = "<sip:{}:{}>{}".format(remoteIP, remotePort, toTag)
             headers["Max-Forwards"] = "70"
-            sequenceRequestType = type
+            if(type == "ACK"):
+                sequenceRequestType = "INVITE"
+            else:
+                sequenceRequestType = type
 
         elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
             startLine = "SIP/2.0 {}\r\n".format(type)            
@@ -380,13 +450,9 @@ class Sip:
         print("SIP service terminated")
 
     def invite(self, address, port):
-        transaction = ClientTransaction(self, "INVITE", self.UDPHandler.getLocalAddress(), (address, port), "Calling")
-        transaction.invite()
         print("Attempting to intitate a call with {}:{}".format(address, port))
-
-        # # TODO send invite request to handler
-        # inviteRequest = SIPService._buildMessage("INVITE", ("10.13.0.23", 5060), (address, port))
-        # self.UDPHandler.sender(inviteRequest, (address, port))
+        transaction = ClientTransaction(self, "INVITE", self.UDPHandler.getLocalAddress(), (address, port), "Calling")
+        transaction.getThread().start()
 
     # def cancel(self, address, port):
     #     print("Call cancelled")
@@ -405,7 +471,7 @@ class Sip:
 
             # Parse message
             message = _parseMessage(data, True)
-            print(json.dumps(message, indent=4))
+            # print(json.dumps(message, indent=4))
 
             # Pass to matching transaction
             if(message["messageType"] == "Response"):
