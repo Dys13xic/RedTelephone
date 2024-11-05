@@ -12,6 +12,8 @@ READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
 NANOSECONDS_IN_MILISECONDS = 1000000
 T1 = 500 * NANOSECONDS_IN_MILISECONDS # Estimate of RTT (default 500 milliseconds or in this case 500,000,000 nanoseconds)
+T2 = 4000 * NANOSECONDS_IN_MILISECONDS # Estimate of time a non-INVITE server transaction takes to respond to a request
+T4 = 5000 * NANOSECONDS_IN_MILISECONDS # Estimate of time for the network to clear messages between network and server client
 
 def _getHeader(headers, targetLabel):
     for header in headers:
@@ -101,7 +103,6 @@ def _parseMessage(data, deepHeaderParse=False):
     
     return messageDict
 
-# TODO Remove UDP Handler class and instead port methods to be part of the SIP class?
 # The sender and listener methods are sort of both catered specifically to SIP traffic...
 class UDPHandler:
 
@@ -245,7 +246,7 @@ class Transaction:
 
         #elif(self.requestMethod == "")
 
-    def passToTransport(self, outgoingMsg):
+    def passToTransport(self, outgoingMsg, limitRetransmitInterval=False):
         currentTime = time.time_ns()
         transactionTimeout = currentTime + (64 * T1)
         attempts = 0
@@ -253,17 +254,23 @@ class Transaction:
         while(currentTime < transactionTimeout and self.getRecvQueue().empty()):
             self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
 
-            retransmitTimeout = currentTime + (pow(2, attempts) * T1)
-            while(currentTime < retransmitTimeout and self.getRecvQueue().empty()):
+            retransmitInterval = (pow(2, attempts) * T1)
+            if(limitRetransmitInterval):
+                retransmitInterval = min((retransmitInterval, T2))
+
+            retransmitTimeout = currentTime + retransmitInterval
+            while(currentTime < retransmitTimeout and currentTime < transactionTimeout and self.getRecvQueue().empty()):
                     currentTime = time.time_ns()
 
             attempts += 1
 
         if self.getRecvQueue().empty():
-            return None
+            respone = None
+        else:
+            response = self.getRecvQueue().get()
 
         self.state = "Proceeding"
-        return self.getRecvQueue().get()
+        return response, retransmitTimeout, transactionTimeout
 
     def terminate(self):
         self.state = "Terminated"
@@ -293,7 +300,7 @@ class ClientTransaction(Transaction):
 
     def invite(self):
         request = self.buildRequest("INVITE")
-        response = self.passToTransport(request)
+        response, _, _ = self.passToTransport(request)
 
         # TODO handle possible transport error during request
 
@@ -319,10 +326,10 @@ class ClientTransaction(Transaction):
                 self.ack()
 
                 currentTime = time.time_ns()
-                terminatedTimeout = currentTime + (32000 * NANOSECONDS_IN_MILISECONDS)
+                completedTimeout = currentTime + (32000 * NANOSECONDS_IN_MILISECONDS)
 
                 # Answer duplicate final responses for 32 seconds before terminating transaction
-                while(currentTime < terminatedTimeout):
+                while(currentTime < completedTimeout):
                     if self.getRecvQueue().empty() == False:
                         response = self.getRecvQueue().get()
                         if 300 <= response['statusCode'] <= 699:
@@ -333,6 +340,8 @@ class ClientTransaction(Transaction):
                             exit()
                     
                     currentTime = time.time_ns()
+
+                self.terminate()
 
             else:
                 # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
@@ -348,7 +357,52 @@ class ClientTransaction(Transaction):
         self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
         self.terminate()
 
-    # def nonInvite(method):
+    def nonInvite(self, method):
+        # Ensure dialog established
+        if not self.dialog:
+            print("No dialog")
+            exit()
+
+        request = self.buildRequest(method)
+        response, retransmitTimeout, transactionTimeout = self.passToTransport(request, True)
+        currentTime = time.time_ns()
+
+        # TODO handle possible transport error during request
+
+        if response:
+            while(currentTime < transactionTimeout and 100 <= response['statusCode'] <= 199):
+                while(currentTime < retransmitTimeout and currentTime < transactionTimeout and 100 <= response['statusCode' <= 199]):
+                    if self.recvQueue.empty() == False:
+                        response = self.recvQueue.get()
+                    
+                    currentTime = time.time_ns
+
+                retransmitTimeout = currentTime + T2
+                self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), request)
+
+            if 100 <= response['statusCode'] <= 199:
+                # Transaction timed out
+                self.terminate()
+
+            elif 200 <= response['statusCode'] <= 699:
+                # Buffer duplicate responses for 5 seconds before terminating transaction
+                completedTimeout = currentTime + T4
+                while(currentTime < completedTimeout):
+                    if self.getRecvQueue().empty() == False:
+                        response = self.getRecvQueue().get()
+
+                    currentTime = time.time_ns()
+
+                self.terminate()
+
+            else:
+                # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
+                print("Invalid response code")
+                exit()
+
+        # Transaction timed out
+        else:
+            self.terminate()
 
 # class ServerTransaction(Transaction):
 #     def __init__(self, localAddress, remoteAddress, state, sequence=1, callID)
