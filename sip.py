@@ -7,7 +7,8 @@ import queue
 import json
 
 # TODO implement whitelist
-PORT = 5060
+SIP_PORT = 5060
+RTP_PORT = 5004
 READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
 NANOSECONDS_IN_MILISECONDS = 1000000
@@ -181,8 +182,13 @@ class Dialog():
     UAS = 1
     UAC = 2
 
-    def __init__(self, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
-        # self.state = state
+    EARLY = 1
+    CONFIRMED = 2
+    TERMINATED = 3
+
+    def __init__(self, transactionUser, state, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
+        self.transactionUser = transactionUser
+        self.state = state
         self.role = role
         self.callID = callID
         self.localTag = localTag
@@ -196,6 +202,8 @@ class Dialog():
         #self.secure = secure
         #self.routeSet = routeSet
 
+        self.transactionUser.addDialog(self)
+
     def getLocalTag(self):
         return self.localTag
 
@@ -207,6 +215,17 @@ class Dialog():
 
     def getLocalSeq(self):
         return self.localSeq
+    
+    def setState(self, state):
+        self.state = state
+
+    def getDialogID(self):
+        return self.dialogID
+    
+    def terminate(self):
+        self.state = Dialog.TERMINATED
+        self.transactionUser.removeDialog(self)
+        # TODO is this going to mess up transactions that belong to this dialog and are still running?
 
 class Transaction:
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog):
@@ -296,7 +315,12 @@ class ClientTransaction(Transaction):
         self.transactionUser.addClientTransaction(self)
 
     def buildRequest(self, method):
-        return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag, self.toTag)
+        messageBody = ""
+
+        if method == "INVITE":
+            messageBody = Sip._buildSDP(self.localIP, RTP_PORT)
+
+        return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag, self.toTag, messageBody)
 
     def invite(self):
         request = self.buildRequest("INVITE")
@@ -305,15 +329,23 @@ class ClientTransaction(Transaction):
         # TODO handle possible transport error during request
 
         if response:
-            # Await non-Provisional response
-            while(100 <= response["statusCode"] <= 199):
-                 response = self.getRecvQueue().get()
-
+            # Await response suitable for dialog creation
+            while 'tag' not in response['headers']['To']:
+                response = self.getRecvQueue().get()
             self.toTag = response['headers']['To']['tag']
-            
+
+            # Await non-Provisional response
+            while 100 <= response['statusCode'] <= 199:
+                if not self.dialog:
+                    self.dialog = Dialog(self.transactionUser, Dialog.EARLY, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
+                response = self.getRecvQueue().get()
+
             # Successfully opened dialog
             if 200 <= response["statusCode"] <= 299:
-                self.dialog = Dialog(Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
+                if self.dialog:
+                    self.dialog.setState(Dialog.CONFIRMED)
+                else:
+                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
 
                 # Ack in seperate transaction
                 ackTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
@@ -322,6 +354,10 @@ class ClientTransaction(Transaction):
 
             # Failed to open dialog
             elif 300 <= response['statusCode'] <= 699:
+
+                if self.dialog:
+                    self.dialog.terminate()
+
                 self.state = "Completed"
                 self.ack()
 
@@ -439,6 +475,31 @@ class Sip:
     def removeClientTransaction(self, transaction):
         del self.clientTransactions[transaction.getBranch() + transaction.getRequestMethod()]
 
+    def addDialog(self, dialog):
+        self.dialogs[dialog.getDialogID()] = dialog
+    
+    def removeDialog(self, dialog):
+        del self.dialogs[dialog.getDialogID()]
+
+    @staticmethod
+    def _buildSDP(localAddress, port=RTP_PORT):
+        #TODO make session id and version unique
+        sessionID = 8000
+        sessionVersion = 8000
+
+        sdp = """v=0
+o=Hotline {} {} IN IP4 {}\r
+s=SIP Call\r
+c=IN IP4 {}\r
+t=0 0\r
+m=audio {} RTP/AVP 123\r
+a=sendrecv\r
+a=rtpmap:123 opus/48000/2\r
+a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, port)
+        
+        return sdp
+
+
     @staticmethod
     def _buildMessage(type, localAddress, remoteAddress, branch, callID, sequence, sequenceRequestType, fromTag, toTag="", messageBody=""):
 
@@ -470,7 +531,7 @@ class Sip:
                 sequenceRequestType = type
 
         elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
-            startLine = "SIP/2.0 {}\r\n".format(type)            
+            startLine = "SIP/2.0 {}\r\n".format(type)
             headers["Via"] = "SIP/2.0/UDP {}:{}".format(remoteIP, remotePort)
             headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag),
             headers["To"] = "<sip:{}:{}>".format(localIP, localPort, toTag)
@@ -481,6 +542,10 @@ class Sip:
         
         headers["Via"] += ";branch=" + branch
         headers["CSeq"] = "{} {}".format(sequence, sequenceRequestType)
+
+        if(messageBody):
+            headers['Content-Type'] = "application/sdp"
+
         headers["Content-Length"] = str(len(messageBody.encode("utf-8")))
 
         # Build message
@@ -549,7 +614,16 @@ class Sip:
 
 SIPService = Sip()
 SIPService.start()
-SIPService.invite("10.13.0.6", 5060)
+SIPService.invite("10.13.0.6", SIP_PORT)
+
+# TODO, what if I passed a dialog object into the SIPService.invite() function IOT initialize it?
+# I could then call Cancel or Bye on the dialog object itself
+# Would make it easier to act on a dialog object as well
+
+
+
+time.sleep(2)
+SIPService.cancel()
 
 # command = input()
 # while(command != "EXIT"):
