@@ -1,63 +1,56 @@
-import discord
-from discord.ext import voice_recv
+from gateway_connection import GatewayMessage
+from gateway import Gateway
+from voice_gateway import VoiceGateway
+
 import sys
+import asyncio
 
-EXIT_SUCCESS = 0
-EXIT_FAILURE = 1
+GUILD_ID = 729825988443111424
+CHANNEL_ID = 729825988443111428
 
-# Retrieve the discord bot token
-try:
-    tokenFile = open("token.txt", 'r')
-    token = tokenFile.readline()
+class Bot:
+    gateway: Gateway
+    voiceGateway: VoiceGateway
+    initialVoiceServerUpdate: asyncio.Event
 
-except:
-    print("ERROR: Unable to open/read token.txt")
-    sys.exit(EXIT_FAILURE)
+    def __init__(self, token):
+        self.gateway = Gateway(token)
+        self.voiceGateway = VoiceGateway()
+        self.initialVoiceServerUpdate = asyncio.Event()
 
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
+if __name__ == "__main__":
+    # Retrieve the discord bot token
+    try:
+        tokenFile = open("token.txt", 'r')
+        token = tokenFile.readline()
+    except:
+        print("ERROR: Unable to open/read token.txt")
+        sys.exit(1)
 
-@client.event
-async def on_ready():
-    print("{} has connected to Discord".format(client.user))
+    bot = Bot(token)
 
-    guilds = client.user.mutual_guilds
-    print(guilds)
-    if len(guilds) != 1:
-        exit(EXIT_FAILURE)
+    @bot.gateway.eventHandler
+    async def voice_server_update(msgObj):
+        try:
+            voiceToken = msgObj.d['token']
+            voiceEndpoint = 'wss://' + msgObj.d['endpoint']
+            serverID = msgObj.d['guild_id']
+        except KeyError as e:
+            print(e)
+            await bot.gateway._stop()
 
-    homeGuild = guilds[0]
+        userID = bot.gateway.getUserID()
+        sessionID = bot.gateway.getSessionID()
 
-    for channel in homeGuild.voice_channels:
-        print(channel)
-        if channel.name == "General":
-            global homeChannel
-            homeChannel = channel
-            break
-
-@client.event
-async def on_message(message):
-    if client.user.mentioned_in(message) and message.channel.type == discord.ChannelType.text:
-        # Call phone
-        print("Attempting to call phone")
-        
-        # Put message in general that phone is ringing
-
-        await joinVoice(homeChannel)
-
-async def recvCall():
-    # Maybe @ everyone?
-    await joinVoice(homeChannel)
+        # TODO should the Bot class hold the UserID, ServerID, and sessionID? Note: they are shared by both gateways
+        bot.voiceGateway.lateInit(userID, serverID, voiceToken, voiceEndpoint, sessionID)
+        bot.initialVoiceServerUpdate.set()
 
 
-
-async def joinVoice(channel):
-    if channel.type != discord.ChannelType.voice:
-        exit(EXIT_FAILURE)
-
-    print("Joining voice channel")
-    voiceClient = await channel.connect()
-
-
-client.run(token)
+    # asyncio.run(gw._run())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(asyncio.gather(bot.gateway._run(), bot.voiceGateway._runAfter(bot.initialVoiceServerUpdate)))
+    finally:
+        loop.close()    
