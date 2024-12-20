@@ -48,11 +48,11 @@ class GatewayConnection:
         self._sendQueue = asyncio.Queue()
 
     async def _run(self):
-        async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websocket:
-            self._recvTask = asyncio.create_task(self._recvLoop(websocket))
-            self._sendTask = asyncio.create_task(self._sendLoop(websocket))
+        async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
+            self._recvTask = asyncio.create_task(self._recvLoop(websock))
+            self._sendTask = asyncio.create_task(self._sendLoop(websock))
             self._heartbeatTask = asyncio.create_task(self._heartbeatLoop())
-            # asyncio.gather(self._recvLoop(websocket), self._sendLoop(websocket), self._heartbeatLoop())
+            # asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
             await self._recvTask
             await self._heartbeatTask
             await self._sendTask
@@ -66,12 +66,12 @@ class GatewayConnection:
         self._sendTask.cancel()
         self._heartbeatTask.cancel()
 
-    async def _sendLoop(self, websocket):
+    async def _sendLoop(self, websock):
         while True:
             msg = await self._sendQueue.get()
             print('\033[32m' + msg)
             try:
-                await websocket.send(msg)
+                await websock.send(msg)
 
             except websockets.exceptions.ConnectionClosed as e:
                 print(e)
@@ -80,9 +80,9 @@ class GatewayConnection:
                 print(e)
 
 
-    async def _recvLoop(self, websocket):
+    async def _recvLoop(self, websock):
             try:
-                async for msg in websocket:
+                async for msg in websock:
                     print('\033[31m' + msg)
                     msgObj = GatewayMessage.objectify(msg)
                     await self.processMsg(msgObj)

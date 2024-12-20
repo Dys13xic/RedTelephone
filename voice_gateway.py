@@ -60,6 +60,8 @@ class VoiceGateway(GatewayConnection):
                     print(e)
                     await self._stop()
 
+                # TODO Establish UDP socket for RTP and peform IP discovery
+
                 data = {'protocol': 'udp', 'data': {'address': sourceIP, 'port': sourcePort, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
                 selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL, data)
                 await self.send(selectMsg)
