@@ -16,6 +16,7 @@ NANOSECONDS_IN_MILISECONDS = 1000000
 
 T1 = 0.5
 T2 = 4
+ANSWER_DUPLICATES_DURATION = 32
 
 # T1 = 500 * NANOSECONDS_IN_MILISECONDS # Estimate of RTT (default 500 milliseconds or in this case 500,000,000 nanoseconds)
 # T2 = 4000 * NANOSECONDS_IN_MILISECONDS # Estimate of time a non-INVITE server transaction takes to respond to a request
@@ -347,7 +348,7 @@ class Transaction:
         self.state = "Proceeding"
         return response, retransmitTimeout, transactionTimeout
 
-    def terminate(self):
+    def cleanup(self):
         self.state = "Terminated"
         self.transactionUser.removeClientTransaction(self)
 
@@ -407,9 +408,8 @@ class ClientTransaction(Transaction):
                     self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
 
                 # Ack in seperate transaction
-                ackTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
-                ackTransaction.getThread().start()
-                self.terminate()
+                newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
+                newTransaction.ack(autoClean=True)
 
             # Failed to open dialog
             elif 300 <= response['statusCode'] <= 699:
@@ -420,37 +420,33 @@ class ClientTransaction(Transaction):
                 self.state = "Completed"
                 self.ack()
 
-                currentTime = time.time_ns()
-                completedTimeout = currentTime + (32000 * NANOSECONDS_IN_MILISECONDS)
-
                 # Answer duplicate final responses for 32 seconds before terminating transaction
-                while(currentTime < completedTimeout):
-                    if self.getRecvQueue().empty() == False:
-                        response = self.getRecvQueue().get()
-                        if 300 <= response['statusCode'] <= 699:
-                            self.ack()
-                        else:
-                            # TODO Maybe return a malformed response? *at the very least shouldn't cause program exit
-                            print("Invalid status code")
-                            exit()
-                    
-                    currentTime = time.time_ns()
-
-                self.terminate()
+                try:
+                    async with asyncio.timeout(ANSWER_DUPLICATES_DURATION):
+                        while(True):
+                            response = await self.recvQueue.get()
+                            if 300 <= response['statusCode'] <= 699:
+                                self.ack()
+                            else:
+                                # TODO Maybe return a malformed response? *at the very least shouldn't cause program exit
+                                print("Invalid status code")
+                                exit()
+                except TimeoutError:
+                    pass
 
             else:
                 # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
                 print("Invalid response code")
                 exit()
 
-        # Transaction timed out
-        else:
-            self.terminate
+        self.cleanup()
 
-    def ack(self):
+    def ack(self, autoClean=False):
         outgoingMsg = self.buildRequest("ACK")
-        self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
-        self.terminate()
+        self.transactionUser.send(outgoingMsg, (self.remoteIP, self.remotePort))
+
+        if autoClean:
+            self.cleanup()
 
     def nonInvite(self, method):
         # Ensure dialog established
