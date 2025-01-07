@@ -12,15 +12,16 @@ SIP_PORT = 5060
 RTP_PORT = 5004
 READ_SIZE = 2048
 SOCKET_TIMEOUT = 1
-NANOSECONDS_IN_MILISECONDS = 1000000
+# NANOSECONDS_IN_MILISECONDS = 1000000
 
 T1 = 0.5
 T2 = 4
+T4 = 5
 ANSWER_DUPLICATES_DURATION = 32
 
 # T1 = 500 * NANOSECONDS_IN_MILISECONDS # Estimate of RTT (default 500 milliseconds or in this case 500,000,000 nanoseconds)
 # T2 = 4000 * NANOSECONDS_IN_MILISECONDS # Estimate of time a non-INVITE server transaction takes to respond to a request
-T4 = 5000 * NANOSECONDS_IN_MILISECONDS # Estimate of time for the network to clear messages between network and server client
+# T4 = 5000 * NANOSECONDS_IN_MILISECONDS # Estimate of time for the network to clear messages between network and server client
 
 def _getHeader(headers, targetLabel):
     for header in headers:
@@ -291,62 +292,59 @@ class Transaction:
     def getRequestMethod(self):
         return self.requestMethod
     
+    # For the time being I've moved request sending logic into Invite and nonInvite methods respectively 
+    
+    # async def asyncPassToTransport(self, outgoingMsg, retransmitIntervalMax=0):
+    #     transactionTimeout = 64 * T1
+    #     response = None
 
-    # Timer B fires when calling - > Terminate
-    # Timer A fires when calling - > resend and reset timer
-    # Response received
+    #     async with asyncio.timeout(transactionTimeout):
+    #         attempts = 0
+    #         while(not response):
+    #             self.transactionUser.send(outgoingMsg, (self.remoteIP, self.remotePort))
 
-    async def asyncPassToTransport(self, outgoingMsg, limitRetransmitInterval=False):
-        transactionTimeout = 64 * T1
-        response = None
+    #             retransmitInterval = (pow(2, attempts) * T1)
+    #             # TODO come back to this (may change function arg to maxRetransmitInterval instead)
+    #             if retransmitIntervalMax:
+    #                 retransmitInterval = min(retransmitIntervalMax, retransmitInterval)
 
-        async with asyncio.timeout(transactionTimeout):
-            attempts = 0
-            while(not response):
-                self.transactionUser.send(outgoingMsg, (self.remoteIP, self.remotePort))
+    #             try:
+    #                 async with asyncio.timeout(retransmitInterval):
+    #                     response = await self.recvQueue.get()
+    #             except TimeoutError:
+    #                 attempts += 1
 
-                retransmitInterval = (pow(2, attempts) * T1)
-                # TODO come back to this (may change function arg to maxRetransmitInterval instead)
-                # if(limitRetransmitInterval):
-                #     retransmitInterval = min((retransmitInterval, T2))
-
-                try:
-                    async with asyncio.timeout(retransmitInterval):
-                        response = await self.recvQueue.get()
-                except TimeoutError:
-                    attempts += 1
-
-        return response
+    #     return response
 
 
         
 
 
-    def passToTransport(self, outgoingMsg, limitRetransmitInterval=False):
-        currentTime = time.time_ns()
-        transactionTimeout = currentTime + (64 * T1)
-        attempts = 0
+    # def passToTransport(self, outgoingMsg, limitRetransmitInterval=False):
+    #     currentTime = time.time_ns()
+    #     transactionTimeout = currentTime + (64 * T1)
+    #     attempts = 0
 
-        while(currentTime < transactionTimeout and self.getRecvQueue().empty()):
-            self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
+    #     while(currentTime < transactionTimeout and self.getRecvQueue().empty()):
+    #         self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
 
-            retransmitInterval = (pow(2, attempts) * T1)
-            if(limitRetransmitInterval):
-                retransmitInterval = min((retransmitInterval, T2))
+    #         retransmitInterval = (pow(2, attempts) * T1)
+    #         if(limitRetransmitInterval):
+    #             retransmitInterval = min((retransmitInterval, T2))
 
-            retransmitTimeout = currentTime + retransmitInterval
-            while(currentTime < retransmitTimeout and currentTime < transactionTimeout and self.getRecvQueue().empty()):
-                    currentTime = time.time_ns()
+    #         retransmitTimeout = currentTime + retransmitInterval
+    #         while(currentTime < retransmitTimeout and currentTime < transactionTimeout and self.getRecvQueue().empty()):
+    #                 currentTime = time.time_ns()
 
-            attempts += 1
+    #         attempts += 1
 
-        if self.getRecvQueue().empty():
-            respone = None
-        else:
-            response = self.getRecvQueue().get()
+    #     if self.getRecvQueue().empty():
+    #         respone = None
+    #     else:
+    #         response = self.getRecvQueue().get()
 
-        self.state = "Proceeding"
-        return response, retransmitTimeout, transactionTimeout
+    #     self.state = "Proceeding"
+    #     return response, retransmitTimeout, transactionTimeout
 
     def cleanup(self):
         self.state = "Terminated"
@@ -381,10 +379,21 @@ class ClientTransaction(Transaction):
 
     async def invite(self):
         request = self.buildRequest("INVITE")
-        try:
-            response = await self.asyncPassToTransport(request)
-        except Exception as e:
-            print(e)
+
+        transactionTimeout = 64 * T1
+        response = None
+
+        async with asyncio.timeout(transactionTimeout):
+            attempts = 0
+            while(not response):
+                self.transactionUser.send(request, (self.remoteIP, self.remotePort))
+                retransmitInterval = (pow(2, attempts) * T1)
+
+                try:
+                    async with asyncio.timeout(retransmitInterval):
+                        response = await self.recvQueue.get()
+                except TimeoutError:
+                    attempts += 1
 
         # TODO handle possible transport error during request
 
@@ -440,6 +449,50 @@ class ClientTransaction(Transaction):
                 exit()
 
         self.cleanup()
+        return self.dialog
+
+    async def nonInvite(self, method):
+        # TODO Ensure dialog established
+        # if not self.dialog:
+        #     print("No dialog")
+        #     exit()
+
+        request = self.buildRequest(method)
+
+        transactionTimeout = 64 * T1
+        response = None
+
+        async with asyncio.timeout(transactionTimeout):
+            attempts = 0
+            while(not response or 100 <= response['statusCode'] <= 199):
+                self.transactionUser.send(request, (self.remoteIP, self.remotePort))
+
+                retransmitInterval = (pow(2, attempts) * T1)
+                retransmitInterval = min(T2, retransmitInterval)
+
+                try:
+                    async with asyncio.timeout(retransmitInterval):
+                        response = await self.recvQueue.get()
+                        # TODO does this state update provide any value?
+                        if 100 <= response['statusCode'] <= 199:
+                            self.state = 'Proceeding'
+                except TimeoutError:
+                    attempts += 1
+
+        # TODO handle possible transport error during request
+
+        if response:
+            if 300 <= response['statusCode'] <= 699:
+                self.state = 'Completed'
+                # Buffer response retransmissions
+                try:
+                    async with asyncio.timeout(T4):
+                        while(True):
+                            response = await self.recvQueue.get()
+                except TimeoutError:
+                    pass
+        
+        self.cleanup()
 
     def ack(self, autoClean=False):
         outgoingMsg = self.buildRequest("ACK")
@@ -447,53 +500,6 @@ class ClientTransaction(Transaction):
 
         if autoClean:
             self.cleanup()
-
-    def nonInvite(self, method):
-        # Ensure dialog established
-        if not self.dialog:
-            print("No dialog")
-            exit()
-
-        request = self.buildRequest(method)
-        response, retransmitTimeout, transactionTimeout = self.passToTransport(request, True)
-        currentTime = time.time_ns()
-
-        # TODO handle possible transport error during request
-
-        if response:
-            while(currentTime < transactionTimeout and 100 <= response['statusCode'] <= 199):
-                while(currentTime < retransmitTimeout and currentTime < transactionTimeout and 100 <= response['statusCode' <= 199]):
-                    if self.recvQueue.empty() == False:
-                        response = self.recvQueue.get()
-                    
-                    currentTime = time.time_ns
-
-                retransmitTimeout = currentTime + T2
-                self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), request)
-
-            if 100 <= response['statusCode'] <= 199:
-                # Transaction timed out
-                self.terminate()
-
-            elif 200 <= response['statusCode'] <= 699:
-                # Buffer duplicate responses for 5 seconds before terminating transaction
-                completedTimeout = currentTime + T4
-                while(currentTime < completedTimeout):
-                    if self.getRecvQueue().empty() == False:
-                        response = self.getRecvQueue().get()
-
-                    currentTime = time.time_ns()
-
-                self.terminate()
-
-            else:
-                # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
-                print("Invalid response code")
-                exit()
-
-        # Transaction timed out
-        else:
-            self.terminate()
 
 # class ServerTransaction(Transaction):
 #     def __init__(self, localAddress, remoteAddress, state, sequence=1, callID)
@@ -628,9 +634,11 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
     #     print("Call cancelled")
     #     # TODO send cancel request to handler
 
-    # def bye(self, address, port):
-    #     print("Call ended")
-    #     # TODO send bye request to handler
+    async def bye(self, dialog, address, port):
+        print("Ending call")
+        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (address, port), "Trying", dialog)
+        byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
+        await byeTask
 
     def handleMsg(self, data, addr):
         # print(addr, data)
@@ -666,6 +674,8 @@ async def main():
     local_addr=("0.0.0.0", SIP_PORT),
     )
     dialog = await sipEndpoint.call("10.13.0.6", SIP_PORT)
+    await asyncio.sleep(1)
+    await sipEndpoint.bye(dialog, "10.13.0.6", SIP_PORT)
     #await asyncio.sleep(60)
 
 if __name__ == "__main__":
