@@ -1,38 +1,18 @@
+import asyncio
 import socket
-import threading
 import time
 import random
 import hashlib
-import queue
 import json
-import asyncio
 
 # TODO implement whitelist
 SIP_PORT = 5060
 RTP_PORT = 5004
-READ_SIZE = 2048
-SOCKET_TIMEOUT = 1
-# NANOSECONDS_IN_MILISECONDS = 1000000
 
 T1 = 0.5
 T2 = 4
 T4 = 5
 ANSWER_DUPLICATES_DURATION = 32
-
-# T1 = 500 * NANOSECONDS_IN_MILISECONDS # Estimate of RTT (default 500 milliseconds or in this case 500,000,000 nanoseconds)
-# T2 = 4000 * NANOSECONDS_IN_MILISECONDS # Estimate of time a non-INVITE server transaction takes to respond to a request
-# T4 = 5000 * NANOSECONDS_IN_MILISECONDS # Estimate of time for the network to clear messages between network and server client
-
-def _getHeader(headers, targetLabel):
-    for header in headers:
-        if header.startswith(targetLabel + ": "):
-            content = header.split(" ", 1)[1].strip()
-            if content.isdigit():
-                content = int(content)
-
-            return content
-
-    return None
 
 def _parseParameters(parameters):
     parameterDict = {}
@@ -65,7 +45,8 @@ def _parseHeader(label, headerDict):
         parameters = tempList[1:]
         subHeadingDict = _parseParameters(parameters)
         subHeadingDict["protocol"] = protocol
-        subHeadingDict["address"] = address
+        subHeadingDict["IP"], subHeadingDict['port'] = address.split(':', 1)
+        subHeadingDict['port'] = int(subHeadingDict['port'])
     
     else:
         print("Unsupported header")
@@ -141,87 +122,12 @@ class SipEndpointProtocol:
     def stop(self):
         self._transport.close()
 
-
-# The sender and listener methods are sort of both catered specifically to SIP traffic...
-class UDPHandler:
-
-    def __init__(self, port, recvQueue):
-        self.localPort = port
-        self.localIP = None
-        self.recvQueue = recvQueue
-        self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    def listener(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(SOCKET_TIMEOUT)
-        sock.bind(("", self.localPort))
-
-        # Retrieve local IP
-        try:
-            tempSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            tempSock.connect(("8.8.8.8", 80))
-            self.localIP = tempSock.getsockname()[0]
-            tempSock.close()
-        except:
-            "Failed to determine local IP address"
-            exit()
-
-        while(True):
-            try:
-                data, (srcAddress, srcPort) = sock.recvfrom(READ_SIZE)
-            except socket.timeout:
-                continue
-
-            # TODO should I add more validation of UDP message format?
-
-            startLineEncoded = data.split(b"\r\n", 1)[0]
-            headersEncoded, messageBodyEncoded = data.split(b"\r\n\r\n")
-
-            startLine = startLineEncoded.decode("utf-8")
-            headers = headersEncoded.decode("utf-8").split("\r\n")[1:]
-            contentLength = _getHeader(headers, "Content-Length")
-
-            messageType = "Request"
-            if(startLine.startswith("SIP/2.0")):
-                messageType = "Response"
-
-
-
-            if(contentLength):
-                # Long messages truncated to contentLength
-                if(len(messageBodyEncoded) > contentLength):
-                    messageBodyEncoded = messageBodyEncoded[:contentLength]
-                    print("Message truncated")
-
-                # Short messages discarded
-                elif(len(messageBodyEncoded) < contentLength):
-                    # 400 Bad Request response generated
-                    if(messageType == "Request"):
-                        # TODO Generate a 400 (Bad Request) response
-                        print("Bad Request")
-
-                    print("Message discarded")
-                    continue
-
-            self.recvQueue.put((srcAddress, srcPort, data))
-
-        sock.close()
-
-    def sender(self, target, message):
-        bytesSent = self.sendSock.sendto(message, target)
-        # TODO confirm that bytes sent matches data size (is this necessary? UDP packets are atomic, I suppose we should still check that data has gone out and log otherwise)
-
-    def getLocalAddress(self):
-        return (self.localIP, self.localPort)
-
-
 class Dialog():
     UAS = 1
     UAC = 2
 
     EARLY = 1
     CONFIRMED = 2
-    TERMINATED = 3
 
     def __init__(self, transactionUser, state, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
         self.transactionUser = transactionUser
@@ -256,11 +162,10 @@ class Dialog():
     def setState(self, state):
         self.state = state
 
-    def getDialogID(self):
+    def getID(self):
         return self.dialogID
     
-    def terminate(self):
-        self.state = Dialog.TERMINATED
+    def cleanup(self):
         self.transactionUser.removeDialog(self)
         # TODO is this going to mess up transactions that belong to this dialog and are still running?
 
@@ -283,72 +188,11 @@ class Transaction:
     def getRecvQueue(self):
         return self.recvQueue
     
-    def getBranch(self):
-        return self.branch
-    
-    def getDialog(self):
-        return self.dialog
-    
     def getRequestMethod(self):
         return self.requestMethod
     
-    # For the time being I've moved request sending logic into Invite and nonInvite methods respectively 
-    
-    # async def asyncPassToTransport(self, outgoingMsg, retransmitIntervalMax=0):
-    #     transactionTimeout = 64 * T1
-    #     response = None
-
-    #     async with asyncio.timeout(transactionTimeout):
-    #         attempts = 0
-    #         while(not response):
-    #             self.transactionUser.send(outgoingMsg, (self.remoteIP, self.remotePort))
-
-    #             retransmitInterval = (pow(2, attempts) * T1)
-    #             # TODO come back to this (may change function arg to maxRetransmitInterval instead)
-    #             if retransmitIntervalMax:
-    #                 retransmitInterval = min(retransmitIntervalMax, retransmitInterval)
-
-    #             try:
-    #                 async with asyncio.timeout(retransmitInterval):
-    #                     response = await self.recvQueue.get()
-    #             except TimeoutError:
-    #                 attempts += 1
-
-    #     return response
-
-
-        
-
-
-    # def passToTransport(self, outgoingMsg, limitRetransmitInterval=False):
-    #     currentTime = time.time_ns()
-    #     transactionTimeout = currentTime + (64 * T1)
-    #     attempts = 0
-
-    #     while(currentTime < transactionTimeout and self.getRecvQueue().empty()):
-    #         self.transactionUser.getUDPHandler().sender((self.remoteIP, self.remotePort), outgoingMsg)
-
-    #         retransmitInterval = (pow(2, attempts) * T1)
-    #         if(limitRetransmitInterval):
-    #             retransmitInterval = min((retransmitInterval, T2))
-
-    #         retransmitTimeout = currentTime + retransmitInterval
-    #         while(currentTime < retransmitTimeout and currentTime < transactionTimeout and self.getRecvQueue().empty()):
-    #                 currentTime = time.time_ns()
-
-    #         attempts += 1
-
-    #     if self.getRecvQueue().empty():
-    #         respone = None
-    #     else:
-    #         response = self.getRecvQueue().get()
-
-    #     self.state = "Proceeding"
-    #     return response, retransmitTimeout, transactionTimeout
-
     def cleanup(self):
-        self.state = "Terminated"
-        self.transactionUser.removeClientTransaction(self)
+        self.transactionUser.removeTransaction(self)
 
 class ClientTransaction(Transaction):
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
@@ -424,7 +268,8 @@ class ClientTransaction(Transaction):
             elif 300 <= response['statusCode'] <= 699:
 
                 if self.dialog:
-                    self.dialog.terminate()
+                    self.dialog.cleanup()
+                    self.dialog = None
 
                 self.state = "Completed"
                 self.ack()
@@ -501,15 +346,60 @@ class ClientTransaction(Transaction):
         if autoClean:
             self.cleanup()
 
-# class ServerTransaction(Transaction):
-#     def __init__(self, localAddress, remoteAddress, state, sequence=1, callID)
+    def getID(self):
+        return self.branch + self.requestMethod
+
+class ServerTransaction(Transaction):
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, state, dialog=None):
+        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, state, dialog)
+
+        if(self.dialog):
+            self.toTag = dialog.getRemoteTag()    
+        else:
+            self.toTag = hex(int(random.getrandbits(32)))[2:]
         
+        self.callID = callID
+        self.branch = branch
+        self.fromTag = fromTag
+        self.sequence = sequence + 1 # TODO update dialog settings after request sent
 
-#     def buildResponse(status):
+        self.transactionUser.addServerTransaction(self)
 
+    async def handleRequest(self, method):
+        if method == "INVITE":
+            await self.invite()
+        else:
+            await self.nonInvite()
 
+    def buildResponse(self, status):
+        messageBody = ""
 
-    
+        if self.requestMethod == "INVITE":
+            messageBody = Sip._buildSDP(self.localIP, RTP_PORT)
+
+        return Sip._buildMessage(status, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, self.requestMethod, self.fromTag, self.toTag, messageBody)
+
+    async def invite(self):
+        # TODO implement behaviour for not accepting every call, i.e. 300 - 699 responses
+        self.state = 'Proceeding'
+        response = self.buildResponse('200 OK')
+        self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+
+        # TODO The remote target MUST be set to the URI from the Contact header field of the request.
+        remoteTarget = None
+
+        self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAS, self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
+
+        self.cleanup()
+        
+    async def nonInvite(self):
+        pass
+        
+    async def ack(self):
+        pass
+
+    def getID(self):
+        return self.branch + self.remoteIP + str(self.remotePort)
 
 class Sip(SipEndpointProtocol):
 
@@ -517,7 +407,7 @@ class Sip(SipEndpointProtocol):
 
     def __init__(self, port=5060):
         self.port = port
-        self.clientTransactions = {}
+        self.transactions = {}
         self.dialogs = {}
 
         # Retrieve local IP
@@ -531,19 +421,25 @@ class Sip(SipEndpointProtocol):
             exit()
 
     def datagram_received(self, data, addr):
-        self.handleMsg(data, addr)
+        loop = asyncio.get_event_loop()
+        loop.create_task(self.datagram_received_async(data, addr))
 
-    def addClientTransaction(self, transaction):
-        self.clientTransactions[transaction.getBranch() + transaction.getRequestMethod()] = transaction
+    async def datagram_received_async(self, data, addr):
+        # TODO check message length against contentLength
+        # Truncating long messages and discarding (with a 400 error) short messages
+        await self.handleMsg(data, addr)
 
-    def removeClientTransaction(self, transaction):
-        del self.clientTransactions[transaction.getBranch() + transaction.getRequestMethod()]
+    def addTransaction(self, transaction):
+        self.transactions[transaction.getID()] = transaction
+
+    def removeTransaction(self, transaction):
+        del self.transactions[transaction.getID()]
 
     def addDialog(self, dialog):
-        self.dialogs[dialog.getDialogID()] = dialog
+        self.dialogs[dialog.getID()] = dialog
     
     def removeDialog(self, dialog):
-        del self.dialogs[dialog.getDialogID()]
+        del self.dialogs[dialog.getID()]
 
     @staticmethod
     def _buildSDP(localAddress, port=RTP_PORT):
@@ -597,7 +493,7 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
         elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
             startLine = "SIP/2.0 {}\r\n".format(type)
             headers["Via"] = "SIP/2.0/UDP {}:{}".format(remoteIP, remotePort)
-            headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag),
+            headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag)
             headers["To"] = "<sip:{}:{}>".format(localIP, localPort, toTag)
 
         else:
@@ -634,13 +530,13 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
     #     print("Call cancelled")
     #     # TODO send cancel request to handler
 
-    async def bye(self, dialog, address, port):
+    async def end(self, dialog, address, port):
         print("Ending call")
         transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (address, port), "Trying", dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
-    def handleMsg(self, data, addr):
+    async def handleMsg(self, data, addr):
         # print(addr, data)
         # Parse message
         message = _parseMessage(data, True)
@@ -651,17 +547,33 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
             key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
             if(key in self.clientTransactions):
                 # TODO note using no_wait with an unbounded queue can result in high memory usage
-                self.clientTransactions[key].getRecvQueue().put_nowait(message)
-            
-            # Ignore orphaned response
-            else:
-                pass
-        
-        # TODO Create new transaction if one doesn't exist
+                await self.clientTransactions[key].getRecvQueue().put(message)
+
         # TODO ensure request received is not a duplicate
         elif(message["messageType"] == "Request"):
-            print("Receiving requests has not been implemented yet")
-            exit()
+
+            # Determine if SIP message belongs to existing dialog
+            dialog = None
+            if 'tag' in message['headers']['From'] and 'tag' in message['headers']['To']:
+                key = message['headers']['Call-ID'] + message['headers']['To']['tag'] + message['headers']['From']['tag']
+                if key in self.dialogs:
+                    dialog = self.dialogs[key]
+
+            # Determine if SIP message belongs to existing transaction
+            key = message['headers']['Via']['branch'] + message['headers']['Via']['IP'] + str(message['headers']['Via']['port'])
+            if (key in self.serverTransactions and(message['method'] == self.serverTransactions[key].getRequestMethod() or
+                                                    (message['method'] == 'ACK' and self.serverTransactions[key].getRequestMethod == "INVITE"))):
+                await self.serverTransactions[key].getRecvQueue().put(message)
+            else:
+                remoteIP = message['headers']['Via']['IP']
+                remotePort = message['headers']['Via']['port']
+                callID = message['headers']['Call-ID']
+                branch = message['headers']['Via']['branch']
+                fromTag = message['headers']['From']['tag']
+                sequence = message['headers']['CSeq']['sequence']
+                transaction = ServerTransaction(self, message['method'], (self.ip, self.port), (remoteIP, remotePort), callID, branch, fromTag, sequence, None, dialog)
+                
+                await transaction.handleRequest(message['method'])
 
         else:
             print("Unsupported message type")
@@ -673,16 +585,10 @@ async def main():
     lambda: Sip(SIP_PORT),
     local_addr=("0.0.0.0", SIP_PORT),
     )
-    dialog = await sipEndpoint.call("10.13.0.6", SIP_PORT)
-    await asyncio.sleep(1)
-    await sipEndpoint.bye(dialog, "10.13.0.6", SIP_PORT)
+    # dialog = await sipEndpoint.call("10.13.0.6", SIP_PORT)
+    await asyncio.sleep(3600)
+    # await sipEndpoint.end(dialog, "10.13.0.6", SIP_PORT)
     #await asyncio.sleep(60)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-# TODO, what if I passed a dialog object into the SIPService.invite() function IOT initialize it?
-# I could then call Cancel or Bye on the dialog object itself
-# Would make it easier to act on a dialog object as well
-
-# Or could I instead return a dialog id to look it up in the SipEndpoint dialog dictionary? (if I intend to keep the dictionary that is)
