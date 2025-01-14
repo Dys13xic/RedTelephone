@@ -1,6 +1,9 @@
 from gateway_connection import GatewayConnection, GatewayMessage
-
 from os import urandom
+import socket
+
+SOURCE_IP = '69.156.219.180'
+SOURCE_PORT = 5004
 
 class OpCodes:
     IDENTIFY = 0
@@ -28,6 +31,8 @@ class OpCodes:
     DAVE_MLS_INVALID_COMMIT_WELCOME = 31
 
 class VoiceGateway(GatewayConnection):
+    _eventListeners: dict = {}
+
     def __init__(self, userID=None, serverID=None, token=None, endpoint=None, sessionID=None):
         super().__init__(token, endpoint)
         self._userID = userID
@@ -40,6 +45,13 @@ class VoiceGateway(GatewayConnection):
         self._userID = userID
         self._serverID = serverID
         self._sessionID = sessionID
+
+    def eventHandler(self, func):
+        def wrapper(instanceSelf, *args, **kwargs):
+            return func(instanceSelf, *args, **kwargs)
+        
+        self._eventListeners[func.__name__] = wrapper
+        return wrapper
 
     async def processMsg(self, msgObj):
         # Update sequence number
@@ -60,9 +72,13 @@ class VoiceGateway(GatewayConnection):
                     print(e)
                     await self._stop()
 
-                # TODO Establish UDP socket for RTP and peform IP discovery
+                # Pass to relevant event handler
+                if('ready' in self._eventListeners.keys()):
+                    await self._eventListeners['ready'](msgObj)
 
-                data = {'protocol': 'udp', 'data': {'address': sourceIP, 'port': sourcePort, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
+                # TODO Establish UDP socket for RTP and peform IP discovery
+                # TODO replace local address info
+                data = {'protocol': 'udp', 'data': {'address': SOURCE_IP, 'port': SOURCE_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
                 selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL, data)
                 await self.send(selectMsg)
             
@@ -119,8 +135,9 @@ class VoiceGateway(GatewayConnection):
                 raise ValueError("Unsupported OP code in msg {}".format(msgObj.op))
 
     def genHeartBeat(self):
-        data = {'t': self.genNonce(), 'seq_ack': self._lastSequence}
+        data = {'t': VoiceGateway.genNonce(), 'seq_ack': self._lastSequence}
         return GatewayMessage(OpCodes.HEARTBEAT, data)
     
+    @staticmethod
     def genNonce():
         return int.from_bytes(urandom(8))

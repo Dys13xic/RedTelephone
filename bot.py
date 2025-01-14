@@ -1,12 +1,14 @@
 from gateway_connection import GatewayMessage
 from gateway import Gateway
 from voice_gateway import VoiceGateway
+from rtp import RtpEndpoint
 
 import sys
 import asyncio
 
 GUILD_ID = 729825988443111424
 CHANNEL_ID = 729825988443111428
+RTP_PORT = 5004
 
 class Bot:
     gateway: Gateway
@@ -46,6 +48,10 @@ if __name__ == "__main__":
         bot.voiceGateway.lateInit(userID, serverID, voiceToken, voiceEndpoint, sessionID)
         bot.initialVoiceServerUpdate.set()
 
+    @bot.voiceGateway.eventHandler
+    async def ready(msgObj):
+        remoteIP, remotePort = msgObj.d['ip'], msgObj.d['port']
+        endpoint = RtpEndpoint.newEndpoint(remoteIP, remotePort, RTP_PORT)
 
     # asyncio.run(gw._run())
     loop = asyncio.new_event_loop()
