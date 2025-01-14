@@ -59,7 +59,7 @@ class Gateway(GatewayConnection):
                     pass
 
                 # Pass to relevant event handler
-                elif(msgObj.t.lower() in self._eventListeners.keys()):
+                if(msgObj.t.lower() in self._eventListeners.keys()):
                     await self._eventListeners[msgObj.t.lower()](msgObj)
 
             # TODO, see if you can reset sleep timer on HeartBeat request (as this function will run immediately, resulting in an early follow-up heartbeat)
