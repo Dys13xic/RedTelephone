@@ -64,24 +64,40 @@ class RtpEndpoint(RtpEndpointProtocol):
     def setProxyEndpoint(self, proxyEndpoint):
         self.proxyEndpoint = proxyEndpoint
 
+    # Potentially rejig this to be in the constructor (and not have RTPEndpoint inherit from RTPEndpoint Protocol)
+    @staticmethod
+    async def newEndpoint(remoteIP, remotePort, localPort, localAddress='0.0.0.0'):
+        loop = asyncio.get_event_loop()
+        _, endpoint = await loop.create_datagram_endpoint(
+            lambda: RtpEndpoint(encrypted=False),
+            local_addr=("0.0.0.0", localPort),
+            remote_addr=(remoteIP, remotePort)
+        )
+        return endpoint
+
 async def main():
     loop = asyncio.get_event_loop()
     _, phoneEndpoint = await loop.create_datagram_endpoint(
         lambda: RtpEndpoint(encrypted=False),
-        local_addr=("0.0.0.0", 5060),
-        remote_addr=("10.13.0.6", 5060)
+        local_addr=("0.0.0.0", 5004)
     )
 
-    _, discordEndpoint = await loop.create_datagram_endpoint(
-        lambda: RtpEndpoint(encrypted=True),
-        local_addr=("0.0.0.0", 9998),
-        remote_addr=("10.13.0.247", 9998)
-    )
+    # _, phoneEndpoint = await loop.create_datagram_endpoint(
+    #     lambda: RtpEndpoint(encrypted=False),
+    #     local_addr=("0.0.0.0", 5060),
+    #     remote_addr=("10.13.0.6", 5060)
+    # )
 
-    phoneEndpoint.setProxyEndpoint(discordEndpoint)
-    discordEndpoint.setProxyEndpoint(phoneEndpoint)
+    # _, discordEndpoint = await loop.create_datagram_endpoint(
+    #     lambda: RtpEndpoint(encrypted=True),
+    #     local_addr=("0.0.0.0", 9998),
+    #     remote_addr=("10.13.0.247", 9998)
+    # )
 
-    await asyncio.sleep(60)
+    # phoneEndpoint.setProxyEndpoint(discordEndpoint)
+    # discordEndpoint.setProxyEndpoint(phoneEndpoint)
+
+    await asyncio.sleep(360)
 
 if __name__ == "__main__":
     asyncio.run(main())
