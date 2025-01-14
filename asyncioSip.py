@@ -92,36 +92,6 @@ def _parseMessage(data, deepHeaderParse=False):
     
     return messageDict
 
-
-class SipEndpointProtocol:
-    def __init__(self):
-        self._transport = None
-
-    def connection_made(self, transport):
-        self._transport = transport
-
-    def send(self, data, addr):
-        try:
-            print(data)
-            self._transport.sendto(data, addr)
-        except Exception as e:
-            print("Failed to Send: ", e)
-            exit(1)
-
-    def datagram_received(self, data, addr):
-        raise NotImplementedError
-
-    def error_received(e):
-        print("Error Received: ", e)
-        exit(1)
-
-    def connection_lost(e):
-        print("Connection Lost: ", e)
-        exit(1)
-
-    def stop(self):
-        self._transport.close()
-
 class Dialog():
     UAS = 1
     UAC = 2
@@ -401,8 +371,36 @@ class ServerTransaction(Transaction):
     def getID(self):
         return self.branch + self.remoteIP + str(self.remotePort)
 
-class Sip(SipEndpointProtocol):
+class SipEndpointProtocol:
+    def __init__(self):
+        self._transport = None
 
+    def connection_made(self, transport):
+        self._transport = transport
+
+    def send(self, data, addr):
+        try:
+            print(data)
+            self._transport.sendto(data, addr)
+        except Exception as e:
+            print("Failed to Send: ", e)
+            exit(1)
+
+    def datagram_received(self, data, addr):
+        raise NotImplementedError
+
+    def error_received(e):
+        print("Error Received: ", e)
+        exit(1)
+
+    def connection_lost(e):
+        print("Connection Lost: ", e)
+        exit(1)
+
+    def stop(self):
+        self._transport.close()
+
+class Sip(SipEndpointProtocol):
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
     def __init__(self, port=5060):
