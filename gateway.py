@@ -86,7 +86,7 @@ class Gateway(GatewayConnection):
                 pass
 
             case _:
-                raise ValueError("Unsupported OP code in msg {}".format(msgObj.op))
+                raise ValueError("Unsupported OP code in gateway msg {}".format(msgObj.op))
             
     def genHeartBeat(self):
         return GatewayMessage(OpCodes.HEARTBEAT, self._lastSequence)
