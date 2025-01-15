@@ -1,11 +1,11 @@
 from gateway_connection import GatewayConnection, GatewayMessage
 from os import urandom
-import socket
+from enum import Enum
 
 SOURCE_IP = '69.156.219.180'
 SOURCE_PORT = 5004
 
-class OpCodes:
+class OpCodes(Enum):
     IDENTIFY = 0
     SELECT_PROTOCOL = 1
     READY = 2
@@ -61,7 +61,7 @@ class VoiceGateway(GatewayConnection):
 
         match msgObj.op:
 
-            case OpCodes.READY:
+            case OpCodes.READY.value:
                 try:
                     # TODO add check for modes containing: aead_xchacha20_poly1305_rtpsize
                     ssrc = msgObj.d['ssrc']
@@ -73,70 +73,78 @@ class VoiceGateway(GatewayConnection):
                     await self._stop()
 
                 # Pass to relevant event handler
-                if('ready' in self._eventListeners.keys()):
-                    await self._eventListeners['ready'](msgObj)
+                # if('ready' in self._eventListeners.keys()):
+                #     await self._eventListeners['ready'](msgObj)
 
                 # TODO Establish UDP socket for RTP and peform IP discovery
                 # TODO replace local address info
                 data = {'protocol': 'udp', 'data': {'address': SOURCE_IP, 'port': SOURCE_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
-                selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL, data)
-                await self.send(selectMsg)
+                selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL.value, data)
+                try:
+                    await self.send(selectMsg)
+                except Exception as e:
+                    print(e)
             
-            case OpCodes.SESSION_DESCRIPTION:
+            case OpCodes.SESSION_DESCRIPTION.value:
                 pass
 
-            case OpCodes.SPEAKING:
+            case OpCodes.SPEAKING.value:
                 pass
 
-            case OpCodes.HEARTBEAT_ACK:
+            case OpCodes.HEARTBEAT_ACK.value:
                 pass
 
-            case OpCodes.HELLO:
+            case OpCodes.HELLO.value:
                 # Update heartbeat interval
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                     
                 # Identify to API
                 data = {'server_id': self._serverID, 'user_id': self._userID, 'session_id': self._sessionID, 'token': self.token}
-                identifyMsg = GatewayMessage(OpCodes.IDENTIFY, data)
+                identifyMsg = GatewayMessage(OpCodes.IDENTIFY.value, data)
                 await self.send(identifyMsg)
 
-            case OpCodes.RESUMED:
+            case OpCodes.RESUMED.value:
                 pass
 
-            case OpCodes.CLIENTS_CONNECT:
+            case OpCodes.CLIENTS_CONNECT.value:
                 pass
 
-            case OpCodes.CLIENTS_DISCONNECT:
+            case OpCodes.CLIENTS_DISCONNECT.value:
                 pass
 
-            case OpCodes.DAVE_PREPARE_TRANSITION:
+            case OpCodes.DAVE_PREPARE_TRANSITION.value:
                 pass
 
-            case OpCodes.DAVE_EXECUTE_TRANSITION:
+            case OpCodes.DAVE_EXECUTE_TRANSITION.value:
                 pass
 
-            case OpCodes.DAVE_PREPARE_EPOCH:
+            case OpCodes.DAVE_PREPARE_EPOCH.value:
                 pass
 
-            case OpCodes.DAVE_MLS_EXTERNAL_SENDER:
+            case OpCodes.DAVE_MLS_EXTERNAL_SENDER.value:
                 pass
 
-            case OpCodes.DAVE_MLS_PROPOSALS:
+            case OpCodes.DAVE_MLS_PROPOSALS.value:
                 pass
 
-            case OpCodes.DAVE_MLS_ANNOUNCE_COMMIT_TRANSACTION:
+            case OpCodes.DAVE_MLS_ANNOUNCE_COMMIT_TRANSACTION.value:
                 pass
 
-            case OpCodes.DAVE_MLS_WELCOME:
+            case OpCodes.DAVE_MLS_WELCOME.value:
                 pass
 
             case _:
-                raise ValueError("Unsupported OP code in msg {}".format(msgObj.op))
+                raise ValueError("Unsupported OP code in voice_gateway msg {}".format(msgObj.op))
+
+        # Pass to relevant event handler
+        listenerName = OpCodes(msgObj.op).name.lower()
+        if listenerName in self._eventListeners.keys():
+            await self._eventListeners[listenerName](msgObj)
 
     def genHeartBeat(self):
         data = {'t': VoiceGateway.genNonce(), 'seq_ack': self._lastSequence}
-        return GatewayMessage(OpCodes.HEARTBEAT, data)
+        return GatewayMessage(OpCodes.HEARTBEAT.value, data)
     
     @staticmethod
     def genNonce():
