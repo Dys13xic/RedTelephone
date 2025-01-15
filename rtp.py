@@ -6,10 +6,37 @@ import asyncio
 import os
 from dataclasses import dataclass
 
-@dataclass
 class RtpMessage:
-    def __init__(self):
-        pass
+    version: bytes = None
+    payloadType: bytes = None
+    payload: bytes = None
+    header: bytes = None
+    sequence: bytes = None
+    timestamp: bytes = None
+    SSRC: bytes = None
+    audio: bytes = None
+    nonce: bytes = None
+
+    def __init__(self, packet):
+        if len(packet) < 28:
+            print('audio packet too small')
+            exit()
+
+        self.version = packet[0]
+        self.payloadType = packet[1]
+
+        # TODO add constant so not a magic number
+        if self.payloadType == 120:
+            self.header = packet[0:14]
+            self.payload = packet[14:-4]
+            self.nonce = packet[-4:] + packet[16:24]
+            
+            # self.sequence = packet[2:4]
+            # self.timestamp = packet[4:8]
+            # self.SSRC = packet[8:12]
+            # self.nonce = packet[12:24]
+            # self.audio = packet[24:-4]
+            # self.append = packet[-4:]
 
 class RtpEndpointProtocol:
     def __init__(self):
@@ -43,37 +70,53 @@ class RtpEndpoint(RtpEndpointProtocol):
     def __init__(self, encrypted):
         super().__init__()
         self.proxyEndpoint = None
-        self.encrypted = encrypted
+        self._secretKey = None
 
     def datagram_received(self, data, addr):
-        print(data, addr)
+        # print(data, addr)
+        msgObj = RtpMessage(data)
 
-        if(self.proxyEndpoint):
-            # TODO encrypt or decrypt depending on direction
-            self.proxyEndpoint.send(data)
+        if msgObj.payload:
+            if(self._secretKey):
+                self.decrypt(msgObj)
+                # print(msgObj.payload)
+
+            if(self.proxyEndpoint):
+                # TODO encrypt or decrypt depending on direction
+                self.proxyEndpoint.send(data)
 
     def encrypt(self, data):
         pass
 
-    def decrypt(self, data):
-        pass
+    def decrypt(self, msgObj):
+        print(msgObj.header)
+        print(msgObj.payload)
+        print(msgObj.nonce)
+        print(self._secretKey)
+        print('\n\n')
+
+        msgObj.payload = ChaCha20Poly1305(self._secretKey).decrypt(msgObj.nonce, msgObj.payload, msgObj.header)
             
     def getEncrypted(self):
         return self.encrypted
     
+    def setSecretKey(self, secretKey):
+        print('vvv')
+        self._secretKey = bytes(secretKey)
+
     def setProxyEndpoint(self, proxyEndpoint):
         self.proxyEndpoint = proxyEndpoint
 
     # Potentially rejig this to be in the constructor (and not have RTPEndpoint inherit from RTPEndpoint Protocol)
-    @staticmethod
-    async def newEndpoint(remoteIP, remotePort, localPort, localAddress='0.0.0.0'):
-        loop = asyncio.get_event_loop()
-        _, endpoint = await loop.create_datagram_endpoint(
-            lambda: RtpEndpoint(encrypted=False),
-            local_addr=("0.0.0.0", localPort),
-            remote_addr=(remoteIP, remotePort)
-        )
-        return endpoint
+    # @staticmethod
+    # async def newEndpoint(remoteIP, remotePort, localPort, localAddress='0.0.0.0'):
+    #     loop = asyncio.get_event_loop()
+    #     _, endpoint = await loop.create_datagram_endpoint(
+    #         lambda: RtpEndpoint(encrypted=False),
+    #         local_addr=("0.0.0.0", localPort),
+    #         remote_addr=(remoteIP, remotePort)
+    #     )
+    #     return endpoint
 
 async def main():
     loop = asyncio.get_event_loop()

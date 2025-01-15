@@ -14,11 +14,15 @@ class Bot:
     gateway: Gateway
     voiceGateway: VoiceGateway
     initialVoiceServerUpdate: asyncio.Event
+    discordEndpoint = RtpEndpoint
+    phoneEndpoint = RtpEndpoint
 
     def __init__(self, token):
         self.gateway = Gateway(token)
         self.voiceGateway = VoiceGateway()
         self.initialVoiceServerUpdate = asyncio.Event()
+        self.discordEndpoint = None
+        self.phoneEndpoint = None
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -51,7 +55,18 @@ if __name__ == "__main__":
     @bot.voiceGateway.eventHandler
     async def ready(msgObj):
         remoteIP, remotePort = msgObj.d['ip'], msgObj.d['port']
-        endpoint = RtpEndpoint.newEndpoint(remoteIP, remotePort, RTP_PORT)
+
+        loop = asyncio.get_event_loop()
+        _, endpoint = await loop.create_datagram_endpoint(
+            lambda: RtpEndpoint(encrypted=False),
+            local_addr=("0.0.0.0", RTP_PORT),
+            remote_addr=(remoteIP, remotePort)
+        )
+        bot.discordEndpoint = endpoint
+
+    @bot.voiceGateway.eventHandler
+    async def session_description(msgObj):
+        bot.discordEndpoint.setSecretKey(msgObj.d['secret_key'])
 
     # asyncio.run(gw._run())
     loop = asyncio.new_event_loop()
