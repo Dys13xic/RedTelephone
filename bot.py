@@ -1,14 +1,16 @@
+# 1st Party
 from gateway_connection import GatewayMessage
 from gateway import Gateway
 from voice_gateway import VoiceGateway
 from rtp import RtpEndpoint
+from sip import Sip
 
+# Standard Library
 import sys
 import asyncio
 
-GUILD_ID = 729825988443111424
-CHANNEL_ID = 729825988443111428
 RTP_PORT = 5004
+
 
 class Bot:
     gateway: Gateway
@@ -16,13 +18,17 @@ class Bot:
     initialVoiceServerUpdate: asyncio.Event
     discordEndpoint = RtpEndpoint
     phoneEndpoint = RtpEndpoint
+    voiceState = {}
 
     def __init__(self, token):
         self.gateway = Gateway(token)
         self.voiceGateway = VoiceGateway()
         self.initialVoiceServerUpdate = asyncio.Event()
+        self.sip = Sip()
         self.discordEndpoint = None
         self.phoneEndpoint = None
+        self.voiceState = {}
+
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -34,6 +40,30 @@ if __name__ == "__main__":
         sys.exit(1)
 
     bot = Bot(token)
+
+    # Track the voice state of all users and update session ID TODO only when receiving the joining voice responses
+    @bot.gateway.eventHandler
+    async def voice_state_update(msgObj):
+        bot.gateway.setSessionID(msgObj.d['session_id'])
+        bot.voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
+
+    # Initiate call on bot mention
+    @bot.gateway.eventHandler
+    async def message_create(msgObj):
+        botID = bot.gateway.getUserID()
+        authorID = msgObj.d['author']['id']
+        voiceGuildID, voiceChannelID = bot.voiceState.get(authorID, [None, None])
+
+        for user in msgObj.d['mentions']:
+            if user['id'] == botID:
+                if msgObj.d['guild_id'] == voiceGuildID:
+                    await bot.gateway.joinVoiceChannel(voiceGuildID, voiceChannelID)
+                else:
+                    # TODO send message to text channel stating user isn't in a voice channel within that guild.
+                    pass
+
+                # TODO initiate phonecall
+                break
 
     @bot.gateway.eventHandler
     async def voice_server_update(msgObj):
@@ -55,10 +85,11 @@ if __name__ == "__main__":
     @bot.voiceGateway.eventHandler
     async def ready(msgObj):
         remoteIP, remotePort = msgObj.d['ip'], msgObj.d['port']
+        ssrc = msgObj.d['ssrc']
 
         loop = asyncio.get_event_loop()
         _, endpoint = await loop.create_datagram_endpoint(
-            lambda: RtpEndpoint(encrypted=False),
+            lambda: RtpEndpoint(ssrc=ssrc, encrypted=True),
             local_addr=("0.0.0.0", RTP_PORT),
             remote_addr=(remoteIP, remotePort)
         )
@@ -67,6 +98,7 @@ if __name__ == "__main__":
     @bot.voiceGateway.eventHandler
     async def session_description(msgObj):
         bot.discordEndpoint.setSecretKey(msgObj.d['secret_key'])
+        bot.discordEndpoint.setProxyEndpoint(bot.discordEndpoint)
 
     # asyncio.run(gw._run())
     loop = asyncio.new_event_loop()
