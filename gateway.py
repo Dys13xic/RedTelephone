@@ -1,8 +1,11 @@
-import asyncio
-
+# 1st Party
 from gateway_connection import GatewayConnection, GatewayMessage
 
+# Standard Library
+import asyncio
+
 DEFAULT_ENDPOINT = "wss://gateway.discord.gg/"
+
 
 class OpCodes:
     EVENT_DISPATCH = 0
@@ -18,15 +21,20 @@ class OpCodes:
     HEARTBEAT_ACK = 11
     REQUEST_SOUNDBOURD_SOUNDS = 31
 
+
 class Gateway(GatewayConnection):
-    _eventListeners: dict = {}
+    _eventListeners: dict
     _userID: int
     _sessionID: int
+    _handshakeComplete: bool
 
     def __init__(self, token):
         super().__init__(token, DEFAULT_ENDPOINT, '&encoding=json')
+
+        self._eventListeners = {}
         self._userID = None
         self._sessionID = None
+        self._handshakeComplete = False
 
     def eventHandler(self, func):
         def wrapper(instanceSelf, *args, **kwargs):
@@ -43,20 +51,10 @@ class Gateway(GatewayConnection):
                     self.setLastSequence(msgObj.s)
 
                 if(msgObj.t == "READY"):
+                    self._handshakeComplete = True
+                    self._userID = msgObj.d['user']['id']
+
                     # TODO grab info for resuming session
-
-                    try:
-                        self._userID = msgObj.d['user']['id']
-                        self._sessionID = msgObj.d['session_id']
-                    except Exception as e:
-                        print(e)
-                        await self._stop()  
-
-                    # TODO Remove: this is for testing purposes
-                    GUILD_ID = 729825988443111424
-                    CHANNEL_ID = 729825988443111428
-                    await self.send(self.genVoiceStateUpdate(GUILD_ID, CHANNEL_ID))
-                    pass
 
                 # Pass to relevant event handler
                 if(msgObj.t.lower() in self._eventListeners.keys()):
@@ -79,7 +77,7 @@ class Gateway(GatewayConnection):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                 # Identify to API
 
-                data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": 1 << 7}
+                data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9)}
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY, data)
                 await self.send(identifyMsg)
 
@@ -93,15 +91,25 @@ class Gateway(GatewayConnection):
         return GatewayMessage(OpCodes.HEARTBEAT, self._lastSequence)
     
     # TODO is this method needed?
-    def genVoiceStateUpdate(self, guildId, channelId, selfMute=False, selfDeaf=False):
-        data = {'guild_id': guildId, 'channel_id': channelId, 'self_mute': selfMute, 'self_deaf': selfDeaf}
-        return GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data)
+    async def joinVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
+        if not self._handshakeComplete:
+            raise Exception('Gateway handshake not complete.')
+
+        data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
+        try:
+            await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
+        except Exception as e:
+            print(e)
     
     def getUserID(self):
         return self._userID
     
+    def setSessionID(self, sessionID):
+        self._sessionID = sessionID
+    
     def getSessionID(self):
         return self._sessionID
+
 
 if __name__ == "__main__":
     token = "foo"
