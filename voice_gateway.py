@@ -1,9 +1,14 @@
+# 1st Party
 from gateway_connection import GatewayConnection, GatewayMessage
+
+# Standard Library
+import asyncio
 from os import urandom
 from enum import Enum
 
 SOURCE_IP = '69.156.219.180'
 SOURCE_PORT = 5004
+
 
 class OpCodes(Enum):
     IDENTIFY = 0
@@ -72,10 +77,6 @@ class VoiceGateway(GatewayConnection):
                 except Exception as e:
                     print(e)
                     await self._stop()
-
-                # Pass to relevant event handler
-                # if('ready' in self._eventListeners.keys()):
-                #     await self._eventListeners['ready'](msgObj)
 
                 # TODO Establish UDP socket for RTP and peform IP discovery
                 # TODO replace local address info
