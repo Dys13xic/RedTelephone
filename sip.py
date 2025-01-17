@@ -1,3 +1,4 @@
+# Standard Library
 import asyncio
 import socket
 import time
@@ -5,7 +6,6 @@ import random
 import hashlib
 import json
 
-# TODO implement whitelist
 SIP_PORT = 5060
 RTP_PORT = 5004
 
@@ -13,6 +13,7 @@ T1 = 0.5
 T2 = 4
 T4 = 5
 ANSWER_DUPLICATES_DURATION = 32
+
 
 def _parseParameters(parameters):
     parameterDict = {}
@@ -92,6 +93,7 @@ def _parseMessage(data, deepHeaderParse=False):
     
     return messageDict
 
+
 class Dialog():
     UAS = 1
     UAC = 2
@@ -139,6 +141,7 @@ class Dialog():
         self.transactionUser.removeDialog(self)
         # TODO is this going to mess up transactions that belong to this dialog and are still running?
 
+
 class Transaction:
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog):
         self.transactionUser = transactionUser
@@ -163,6 +166,7 @@ class Transaction:
     
     def cleanup(self):
         self.transactionUser.removeTransaction(self)
+
 
 class ClientTransaction(Transaction):
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
@@ -319,6 +323,7 @@ class ClientTransaction(Transaction):
     def getID(self):
         return self.branch + self.requestMethod
 
+
 class ServerTransaction(Transaction):
     def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, state, dialog=None):
         super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, state, dialog)
@@ -371,6 +376,7 @@ class ServerTransaction(Transaction):
     def getID(self):
         return self.branch + self.remoteIP + str(self.remotePort)
 
+
 class SipEndpointProtocol:
     def __init__(self):
         self._transport = None
@@ -400,10 +406,11 @@ class SipEndpointProtocol:
     def stop(self):
         self._transport.close()
 
+
 class Sip(SipEndpointProtocol):
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
-    def __init__(self, port=5060):
+    def __init__(self, port=SIP_PORT):
         self.port = port
         self.transactions = {}
         self.dialogs = {}
@@ -456,7 +463,6 @@ a=rtpmap:123 opus/48000/2\r
 a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, port)
         
         return sdp
-
 
     @staticmethod
     def _buildMessage(type, localAddress, remoteAddress, branch, callID, sequence, sequenceRequestType, fromTag, toTag="", messageBody=""):
@@ -517,12 +523,8 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
     async def call(self, address, port):
         print("Attempting to intitate a call with {}:{}".format(address, port))
         transaction = ClientTransaction(self, "INVITE", (self.ip, self.port), (address, port), "Calling")
-        inviteTask = asyncio.create_task(transaction.invite())
-        dialog = await inviteTask
+        dialog = await transaction.invite()
         return dialog
-
-        # transaction = ClientTransaction(self, "INVITE", self.UDPHandler.getLocalAddress(), (address, port), "Calling")
-        # transaction.getThread().start()
 
     # def cancel(self, address, port):
     #     print("Call cancelled")
