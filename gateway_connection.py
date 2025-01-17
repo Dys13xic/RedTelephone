@@ -1,14 +1,14 @@
 # 3rd Party
 import websockets
 
-# Standard library
+# Standard Library
 import asyncio
 from typing import Any
 import json
 from dataclasses import dataclass, asdict
-from types import SimpleNamespace
 
 API_VERSION = 10
+
 
 @dataclass
 class GatewayMessage:
@@ -26,10 +26,8 @@ class GatewayMessage:
     def objectify(string):
         jsonDict = json.loads(string)
         classObj = GatewayMessage(**jsonDict)
-        # Convert data field to a Simple Namespace
-        # print(classObj.d)
-        # classObj.d = json.loads(classObj.d, object_hook=lambda data: SimpleNamespace(**data))
         return classObj
+
 
 class GatewayConnection:
     token: str
@@ -79,7 +77,6 @@ class GatewayConnection:
             except Exception as e:
                 print(e)
 
-
     async def _recvLoop(self, websock):
             try:
                 async for msg in websock:
@@ -119,6 +116,7 @@ class GatewayConnection:
     
     def genHeartBeat(self):
         raise NotImplementedError
+
 
 if __name__ == "__main__":
     g = GatewayConnection("alksdjfdsklf")
