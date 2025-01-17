@@ -1,42 +1,55 @@
 # 3rd Party
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+import nacl.secret
 
-# Standard library
+# Standard Library
 import asyncio
-import os
 from dataclasses import dataclass
 
-class RtpMessage:
-    version: bytes = None
+
+class RtpMessage():
+    DEFAULT_HEADER_SIZE = 12
+    CSRC_SIZE = 4
+    EXTENSION_SIZE = 4
+    NONCE_SIZE = 24
+    NONCE_COUNT_SIZE = 4
+
     payloadType: bytes = None
-    payload: bytes = None
     header: bytes = None
-    sequence: bytes = None
-    timestamp: bytes = None
-    SSRC: bytes = None
-    audio: bytes = None
-    nonce: bytes = None
+    payload: bytes = None
+    nonce: bytes = b''
 
-    def __init__(self, packet):
-        if len(packet) < 28:
-            print('audio packet too small')
-            exit()
+    def __init__(self, packet, encrypted=False):
+        self.encrypted = encrypted
+        self.versionFlags = packet[0]
+        self.payloadType = packet[1]  
 
-        self.version = packet[0]
-        self.payloadType = packet[1]
+        # RTP packet
+        # https://git.kaydax.xyz/w/algos/src/branch/main/doc/crypt.md
+        if not (200 <= self.payloadType <= 204):
+            xMask = int('00010000', 2)
+            cMask = int('00001111', 2)
 
-        # TODO add constant so not a magic number
-        if self.payloadType == 120:
-            self.header = packet[0:14]
-            self.payload = packet[14:-4]
-            self.nonce = packet[-4:] + packet[16:24]
-            
-            # self.sequence = packet[2:4]
-            # self.timestamp = packet[4:8]
-            # self.SSRC = packet[8:12]
-            # self.nonce = packet[12:24]
-            # self.audio = packet[24:-4]
-            # self.append = packet[-4:]
+            extendHeader = (self.versionFlags & xMask) > 0
+            csrcCount = self.versionFlags & cMask
+
+            headerLength = RtpMessage.DEFAULT_HEADER_SIZE + (csrcCount * RtpMessage.CSRC_SIZE) + (extendHeader * RtpMessage.EXTENSION_SIZE)
+            self.header = packet[0:headerLength]
+
+            if encrypted:
+                self.payload = packet[headerLength:-RtpMessage.NONCE_COUNT_SIZE]
+                self.nonce = packet[-RtpMessage.NONCE_COUNT_SIZE:] + b'\00' * (RtpMessage.NONCE_SIZE - RtpMessage.NONCE_COUNT_SIZE)
+            else:
+                self.payload = packet[headerLength:]
+
+        # RTCP packet
+        # else:
+
+    def byteStringify(self):
+        return self.header + self.payload + self.nonce[:4]
+    
+    def setSSRC(self, ssrc):
+        self.header = self.header[:8] + int.to_bytes(ssrc, 4) + self.header[12:]
+
 
 class RtpEndpointProtocol:
     def __init__(self):
@@ -46,11 +59,7 @@ class RtpEndpointProtocol:
         self._transport = transport
 
     def send(self, data):
-        try:
-            self._transport.sendto(data)
-        except Exception as e:
-            print("Failed to Send: ", e)
-            exit(1)
+        raise NotImplementedError
 
     def datagram_received(self, data, addr):
         raise NotImplementedError
@@ -66,80 +75,65 @@ class RtpEndpointProtocol:
     def stop(self):
         self._transport.close()
 
+
 class RtpEndpoint(RtpEndpointProtocol):
-    def __init__(self, encrypted):
+    def __init__(self, ssrc=None, encrypted=False):
         super().__init__()
+
+        self.ssrc = ssrc
+        self.encrypted = encrypted
+        self._nonceCount = 0
+
+        self._secretBox = None
         self.proxyEndpoint = None
-        self._secretKey = None
+
+    def send(self, msgObj):
+        if self.ssrc:
+            msgObj.setSSRC(self.ssrc)
+
+        if self.encrypted:
+            self.encrypt(msgObj)
+        
+        try:
+            self._transport.sendto(msgObj.byteStringify())
+        except Exception as e:
+            print(e)
 
     def datagram_received(self, data, addr):
-        # print(data, addr)
-        msgObj = RtpMessage(data)
+        # TODO clean up this fix for RTCP packets getting encrypted...
+        if data[1] == 97 or (200 <= data[1] <= 204):
+            return
+        
+        msgObj = RtpMessage(data, self.encrypted)
 
-        if msgObj.payload:
-            if(self._secretKey):
-                self.decrypt(msgObj)
-                # print(msgObj.payload)
+        if self._secretBox:
+            self.decrypt(msgObj)
 
-            if(self.proxyEndpoint):
-                # TODO encrypt or decrypt depending on direction
-                self.proxyEndpoint.send(data)
+        if self.proxyEndpoint:
+            self.proxyEndpoint.send(msgObj)
 
-    def encrypt(self, data):
-        pass
+    def encrypt(self, msgObj):
+        self._nonceCount += 1
+        msgObj.nonce = int.to_bytes(self._nonceCount, 4, byteorder='big') + b'\00' * 20
+        msgObj.payload = self._secretBox.encrypt(msgObj.payload, msgObj.header, msgObj.nonce).ciphertext
 
     def decrypt(self, msgObj):
-        print(msgObj.header)
-        print(msgObj.payload)
-        print(msgObj.nonce)
-        print(self._secretKey)
-        print('\n\n')
-
-        msgObj.payload = ChaCha20Poly1305(self._secretKey).decrypt(msgObj.nonce, msgObj.payload, msgObj.header)
-            
-    def getEncrypted(self):
-        return self.encrypted
+        msgObj.payload = self._secretBox.decrypt(msgObj.payload, msgObj.header, msgObj.nonce)
     
     def setSecretKey(self, secretKey):
-        print('vvv')
-        self._secretKey = bytes(secretKey)
+        self._secretBox = nacl.secret.Aead(bytes(secretKey))
 
     def setProxyEndpoint(self, proxyEndpoint):
         self.proxyEndpoint = proxyEndpoint
 
-    # Potentially rejig this to be in the constructor (and not have RTPEndpoint inherit from RTPEndpoint Protocol)
-    # @staticmethod
-    # async def newEndpoint(remoteIP, remotePort, localPort, localAddress='0.0.0.0'):
-    #     loop = asyncio.get_event_loop()
-    #     _, endpoint = await loop.create_datagram_endpoint(
-    #         lambda: RtpEndpoint(encrypted=False),
-    #         local_addr=("0.0.0.0", localPort),
-    #         remote_addr=(remoteIP, remotePort)
-    #     )
-    #     return endpoint
 
+# Test code
 async def main():
     loop = asyncio.get_event_loop()
     _, phoneEndpoint = await loop.create_datagram_endpoint(
         lambda: RtpEndpoint(encrypted=False),
         local_addr=("0.0.0.0", 5004)
     )
-
-    # _, phoneEndpoint = await loop.create_datagram_endpoint(
-    #     lambda: RtpEndpoint(encrypted=False),
-    #     local_addr=("0.0.0.0", 5060),
-    #     remote_addr=("10.13.0.6", 5060)
-    # )
-
-    # _, discordEndpoint = await loop.create_datagram_endpoint(
-    #     lambda: RtpEndpoint(encrypted=True),
-    #     local_addr=("0.0.0.0", 9998),
-    #     remote_addr=("10.13.0.247", 9998)
-    # )
-
-    # phoneEndpoint.setProxyEndpoint(discordEndpoint)
-    # discordEndpoint.setProxyEndpoint(phoneEndpoint)
-
     await asyncio.sleep(360)
 
 if __name__ == "__main__":
