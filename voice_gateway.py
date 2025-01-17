@@ -32,6 +32,7 @@ class OpCodes(Enum):
 
 class VoiceGateway(GatewayConnection):
     _eventListeners: dict = {}
+    ssrc: int = None
 
     def __init__(self, userID=None, serverID=None, token=None, endpoint=None, sessionID=None):
         super().__init__(token, endpoint)
@@ -64,7 +65,7 @@ class VoiceGateway(GatewayConnection):
             case OpCodes.READY.value:
                 try:
                     # TODO add check for modes containing: aead_xchacha20_poly1305_rtpsize
-                    ssrc = msgObj.d['ssrc']
+                    self.ssrc = msgObj.d['ssrc']
                     ip = msgObj.d['ip']
                     port = msgObj.d['port']
                     modes = msgObj.d['modes']
@@ -86,7 +87,12 @@ class VoiceGateway(GatewayConnection):
                     print(e)
             
             case OpCodes.SESSION_DESCRIPTION.value:
-                pass
+                data = {'speaking': 1, 'delay': 0, 'ssrc': self.ssrc}
+                speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
+                try:
+                    await self.send(speakingMsg)
+                except Exception as e:
+                    print(e)
 
             case OpCodes.SPEAKING.value:
                 pass
@@ -145,7 +151,7 @@ class VoiceGateway(GatewayConnection):
     def genHeartBeat(self):
         data = {'t': VoiceGateway.genNonce(), 'seq_ack': self._lastSequence}
         return GatewayMessage(OpCodes.HEARTBEAT.value, data)
-    
+
     @staticmethod
     def genNonce():
         return int.from_bytes(urandom(8))

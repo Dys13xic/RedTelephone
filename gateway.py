@@ -78,7 +78,8 @@ class Gateway(GatewayConnection):
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                 # Identify to API
-                data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": 1 << 9}
+
+                data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": 1 << 7}
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY, data)
                 await self.send(identifyMsg)
 
