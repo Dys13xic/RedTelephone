@@ -6,6 +6,8 @@ import asyncio
 from typing import Any
 import json
 from dataclasses import dataclass, asdict
+import logging
+import os
 
 API_VERSION = 10
 
@@ -46,20 +48,17 @@ class GatewayConnection:
         self._sendQueue = asyncio.Queue()
 
     async def _run(self):
+        logging.basicConfig(format='%(message)s', level=logging.DEBUG)
+        os.environ['WEBSOCKETS_MAX_LOG_SIZE'] = '1000'
+
         async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
-            self._recvTask = asyncio.create_task(self._recvLoop(websock))
-            self._sendTask = asyncio.create_task(self._sendLoop(websock))
-            self._heartbeatTask = asyncio.create_task(self._heartbeatLoop())
-            # asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
-            await self._recvTask
-            await self._heartbeatTask
-            await self._sendTask
+            await asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
 
     async def _runAfter(self, event):
         await event.wait()
         await self._run()
         
-    async def _stop(self):
+    def _stop(self):
         self._recvTask.cancel()
         self._sendTask.cancel()
         self._heartbeatTask.cancel()
@@ -67,7 +66,7 @@ class GatewayConnection:
     async def _sendLoop(self, websock):
         while True:
             msg = await self._sendQueue.get()
-            print('\033[32m' + msg)
+            # print('\033[32m' + msg)
             try:
                 await websock.send(msg)
 
@@ -78,15 +77,16 @@ class GatewayConnection:
                 print(e)
 
     async def _recvLoop(self, websock):
+        while True:
             try:
-                async for msg in websock:
-                    print('\033[31m' + msg)
-                    msgObj = GatewayMessage.objectify(msg)
-                    await self.processMsg(msgObj)
+                msg = await websock.recv()
+                print('\033[31m' + msg + '\033[39m')
+                msgObj = GatewayMessage.objectify(msg)
+                await self.processMsg(msgObj)
 
             except websockets.exceptions.ConnectionClosed as e:
                 print(e)
-                await self._stop()       
+                await self._stop()
             except Exception as e:
                 print(e)
 
