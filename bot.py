@@ -41,13 +41,14 @@ if __name__ == "__main__":
 
     bot = Bot(token)
 
-    # Track the voice state of all users and update session ID TODO only when receiving the joining voice responses
+    # Track the voice state of all users and update bot session ID
     @bot.gateway.eventHandler
     async def voice_state_update(msgObj):
-        bot.gateway.setSessionID(msgObj.d['session_id'])
+        if msgObj.d['user_id'] == bot.gateway.getUserID():
+            bot.gateway.setSessionID(msgObj.d['session_id'])
         bot.voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
 
-    # Initiate call on bot mention
+    # Initiate VOIP call on bot mention
     @bot.gateway.eventHandler
     async def message_create(msgObj):
         botID = bot.gateway.getUserID()
