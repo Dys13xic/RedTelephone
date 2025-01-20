@@ -185,7 +185,7 @@ class ClientTransaction(Transaction):
             self.sequence = 1
 
         self.branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
-        self.transactionUser.addClientTransaction(self)
+        self.transactionUser.addTransaction(self)
 
     def buildRequest(self, method):
         messageBody = ""
@@ -545,9 +545,8 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
         # Pass to matching transaction
         if(message["messageType"] == "Response"):
             key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
-            if(key in self.clientTransactions):
-                # TODO note using no_wait with an unbounded queue can result in high memory usage
-                await self.clientTransactions[key].getRecvQueue().put(message)
+            if(key in self.transactions):
+                await self.transactions[key].getRecvQueue().put(message)
 
         # TODO ensure request received is not a duplicate
         elif(message["messageType"] == "Request"):
@@ -561,9 +560,9 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
 
             # Determine if SIP message belongs to existing transaction
             key = message['headers']['Via']['branch'] + message['headers']['Via']['IP'] + str(message['headers']['Via']['port'])
-            if (key in self.serverTransactions and(message['method'] == self.serverTransactions[key].getRequestMethod() or
-                                                    (message['method'] == 'ACK' and self.serverTransactions[key].getRequestMethod == "INVITE"))):
-                await self.serverTransactions[key].getRecvQueue().put(message)
+            if (key in self.transactions and(message['method'] == self.transactions[key].getRequestMethod() or
+                                                    (message['method'] == 'ACK' and self.transactions[key].getRequestMethod == "INVITE"))):
+                await self.transactions[key].getRecvQueue().put(message)
             else:
                 remoteIP = message['headers']['Via']['IP']
                 remotePort = message['headers']['Via']['port']
@@ -579,13 +578,22 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
             print("Unsupported message type")
             exit()
 
+    @staticmethod
+    async def run():
+        loop = asyncio.get_event_loop()
+        _, endpoint = await loop.create_datagram_endpoint(
+        lambda: Sip(SIP_PORT),
+        local_addr=("0.0.0.0", SIP_PORT),
+        )
+        return endpoint
+
 async def main():
     loop = asyncio.get_event_loop()
     _, sipEndpoint = await loop.create_datagram_endpoint(
     lambda: Sip(SIP_PORT),
     local_addr=("0.0.0.0", SIP_PORT),
     )
-    # dialog = await sipEndpoint.call("10.13.0.6", SIP_PORT)
+    dialog = await sipEndpoint.call("10.13.0.6", SIP_PORT)
     await asyncio.sleep(3600)
     # await sipEndpoint.end(dialog, "10.13.0.6", SIP_PORT)
     #await asyncio.sleep(60)
