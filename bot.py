@@ -10,12 +10,14 @@ import sys
 import asyncio
 
 RTP_PORT = 5004
+SIP_PORT = 5060
 
 
 class Bot:
     gateway: Gateway
     voiceGateway: VoiceGateway
     initialVoiceServerUpdate: asyncio.Event
+    sip = Sip
     discordEndpoint = RtpEndpoint
     phoneEndpoint = RtpEndpoint
     voiceState = {}
@@ -24,11 +26,13 @@ class Bot:
         self.gateway = Gateway(token)
         self.voiceGateway = VoiceGateway()
         self.initialVoiceServerUpdate = asyncio.Event()
-        self.sip = Sip()
+        self.sip = None
         self.discordEndpoint = None
         self.phoneEndpoint = None
         self.voiceState = {}
 
+    async def registerSIP(self):
+        self.sip = await Sip.run()
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -59,6 +63,7 @@ if __name__ == "__main__":
             if user['id'] == botID:
                 if msgObj.d['guild_id'] == voiceGuildID:
                     await bot.gateway.joinVoiceChannel(voiceGuildID, voiceChannelID)
+                    dialog = await bot.sip.call('10.13.0.6', SIP_PORT)
                 else:
                     # TODO send message to text channel stating user isn't in a voice channel within that guild.
                     pass
@@ -105,6 +110,6 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(asyncio.gather(bot.gateway._run(), bot.voiceGateway._runAfter(bot.initialVoiceServerUpdate)))
+        loop.run_until_complete(asyncio.gather(bot.registerSIP(), bot.gateway._run(), bot.voiceGateway._runAfter(bot.initialVoiceServerUpdate)))
     finally:
         loop.close()    
