@@ -80,7 +80,7 @@ class GatewayConnection:
         while True:
             try:
                 msg = await websock.recv()
-                print('\033[31m' + msg + '\033[39m')
+                # print('\033[31m' + msg + '\033[39m')
                 msgObj = GatewayMessage.objectify(msg)
                 await self.processMsg(msgObj)
 
