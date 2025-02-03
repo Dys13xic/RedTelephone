@@ -5,6 +5,9 @@ import nacl.secret
 import asyncio
 from dataclasses import dataclass
 
+class PayloadType():
+    RTP = 120
+    RCTP = 200
 
 class RtpMessage():
     DEFAULT_HEADER_SIZE = 12
@@ -23,32 +26,54 @@ class RtpMessage():
         self.versionFlags = packet[0]
         self.payloadType = packet[1]  
 
-        # RTP packet
         # https://git.kaydax.xyz/w/algos/src/branch/main/doc/crypt.md
-        if not (200 <= self.payloadType <= 204):
-            xMask = int('00010000', 2)
-            cMask = int('00001111', 2)
-
-            extendHeader = (self.versionFlags & xMask) > 0
-            csrcCount = self.versionFlags & cMask
-
-            headerLength = RtpMessage.DEFAULT_HEADER_SIZE + (csrcCount * RtpMessage.CSRC_SIZE) + (extendHeader * RtpMessage.EXTENSION_SIZE)
-            self.header = packet[0:headerLength]
-
-            if encrypted:
-                self.payload = packet[headerLength:-RtpMessage.NONCE_COUNT_SIZE]
-                self.nonce = packet[-RtpMessage.NONCE_COUNT_SIZE:] + b'\00' * (RtpMessage.NONCE_SIZE - RtpMessage.NONCE_COUNT_SIZE)
-            else:
-                self.payload = packet[headerLength:]
 
         # RTCP packet
-        # else:
+        if 200 <= self.payloadType <= 204:
+            self.payloadType = PayloadType.RCTP
+            headerLength = 8
+
+        # RTP packet
+        else:
+            self.payloadType = PayloadType.RTP
+            xMask = int('00010000', 2)
+            cMask = int('00001111', 2)
+            extendHeader = (self.versionFlags & xMask) > 0
+            csrcCount = self.versionFlags & cMask
+            headerLength = RtpMessage.DEFAULT_HEADER_SIZE + (csrcCount * RtpMessage.CSRC_SIZE) + (extendHeader * RtpMessage.EXTENSION_SIZE)
+
+        self.header = packet[0:headerLength]
+
+        if encrypted:
+            self.payload = packet[headerLength:-RtpMessage.NONCE_COUNT_SIZE]
+            self.nonce = packet[-RtpMessage.NONCE_COUNT_SIZE:] + b'\00' * (RtpMessage.NONCE_SIZE - RtpMessage.NONCE_COUNT_SIZE)
+        else:
+            self.payload = packet[headerLength:]
 
     def byteStringify(self):
         return self.header + self.payload + self.nonce[:4]
     
+    def stripExtensionHeader(self):
+        if self.payloadType == PayloadType.RTP:
+            xMask = int('00010000', 2)
+            if self.versionFlags & xMask:
+                self.versionFlags = self.versionFlags ^ xMask
+                extensionLength = int.from_bytes(self.header[14:16])
+
+                self.header = int(self.versionFlags).to_bytes(1) + self.header[1:12]
+                self.payload = self.payload[extensionLength * RtpMessage.EXTENSION_SIZE:]
+
+    
     def setSSRC(self, ssrc):
-        self.header = self.header[:8] + int.to_bytes(ssrc, 4) + self.header[12:]
+        match self.payloadType:
+            case PayloadType.RTP:
+                self.header = self.header[:8] + int.to_bytes(ssrc, 4) + self.header[12:]
+
+            case PayloadType.RCTP:
+                self.header = self.header[:4] + int.to_bytes(ssrc, 4)
+
+            case _:
+                raise ValueError("Unsupported payload type in RTP message.")
 
 
 class RtpEndpointProtocol:
@@ -86,13 +111,19 @@ class RtpEndpoint(RtpEndpointProtocol):
 
         self._secretBox = None
         self.proxyEndpoint = None
+        self.ctrlProxyEndpoint = None
 
     def send(self, msgObj):
         if self.ssrc:
             msgObj.setSSRC(self.ssrc)
 
         if self.encrypted:
-            self.encrypt(msgObj)
+            if self._secretBox:
+                self.encrypt(msgObj)
+            else:
+                return
+        else:
+            msgObj.stripExtensionHeader()
         
         try:
             self._transport.sendto(msgObj.byteStringify())
@@ -100,16 +131,18 @@ class RtpEndpoint(RtpEndpointProtocol):
             print(e)
 
     def datagram_received(self, data, addr):
-        # TODO clean up this fix for RTCP packets getting encrypted...
-        if data[1] == 97 or (200 <= data[1] <= 204):
-            return
-        
         msgObj = RtpMessage(data, self.encrypted)
 
-        if self._secretBox:
-            self.decrypt(msgObj)
+        if self.encrypted:
+            if self._secretBox:
+                self.decrypt(msgObj)
+            else:
+                return
 
-        if self.proxyEndpoint:
+        if msgObj.payloadType == PayloadType.RCTP and self.ctrlProxyEndpoint:
+            self.ctrlProxyEndpoint.send(msgObj)
+
+        elif self.proxyEndpoint:
             self.proxyEndpoint.send(msgObj)
 
     def encrypt(self, msgObj):
@@ -119,13 +152,22 @@ class RtpEndpoint(RtpEndpointProtocol):
 
     def decrypt(self, msgObj):
         msgObj.payload = self._secretBox.decrypt(msgObj.payload, msgObj.header, msgObj.nonce)
-    
+        msgObj.nonce = b''
+
     def setSecretKey(self, secretKey):
         self._secretBox = nacl.secret.Aead(bytes(secretKey))
 
-    def setProxyEndpoint(self, proxyEndpoint):
-        self.proxyEndpoint = proxyEndpoint
+    @staticmethod
+    def proxy(x, y, xCtrl=None, yCtrl=None):
+        x.proxyEndpoint = y
+        x.ctrlProxyEndpoint = yCtrl
+        y.proxyEndpoint = x
+        y.ctrlProxyEndpoint = xCtrl
 
+        if xCtrl:
+            xCtrl.ctrlProxyEndpoint = yCtrl
+        if yCtrl:
+            yCtrl.ctrlProxyEndpoint = xCtrl
 
 # Test code
 async def main():
