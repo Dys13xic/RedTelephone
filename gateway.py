@@ -125,6 +125,6 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(gw._run())
+        loop.run_until_complete(gw.run())
     finally:
         loop.close()

@@ -47,16 +47,16 @@ class GatewayConnection:
         self._lastSequence = None
         self._sendQueue = asyncio.Queue()
 
-    async def _run(self):
+    async def run(self):
         logging.basicConfig(format='%(message)s', level=logging.DEBUG)
         os.environ['WEBSOCKETS_MAX_LOG_SIZE'] = '1000'
 
         async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
             await asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
 
-    async def _runAfter(self, event):
+    async def runAfter(self, event):
         await event.wait()
-        await self._run()
+        await self.run()
         
     def _stop(self):
         self._recvTask.cancel()
@@ -124,6 +124,6 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(g._run())
+        loop.run_until_complete(g.run())
     finally:
         loop.close()
