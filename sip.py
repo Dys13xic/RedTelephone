@@ -14,6 +14,21 @@ T2 = 4
 T4 = 5
 ANSWER_DUPLICATES_DURATION = 32
 
+def _parseSDP(messageBody):
+    rtpPort, rtcpPort = RTP_PORT, RTP_PORT + 1
+    fields = messageBody.split('\r\n')
+
+    # TODO clean up this brutal parsing code
+    for f in fields:
+        if f.startswith('m=audio'):
+            args = f.split(' ')
+            rtpPort = int(args[1])
+
+        elif f.startswith('a=rtcp:'):
+            firstArg, _ = f.split(' ', 1)
+            rtcpPort = int(firstArg[len('a=rtcp:'):])
+
+    return rtpPort, rtcpPort
 
 def _parseParameters(parameters):
     parameterDict = {}
@@ -101,7 +116,7 @@ class Dialog():
     EARLY = 1
     CONFIRMED = 2
 
-    def __init__(self, transactionUser, state, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
+    def __init__(self, transactionUser, state, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None, rtpPort = RTP_PORT, rtcpPort = RTP_PORT + 1):
         self.transactionUser = transactionUser
         self.state = state
         self.role = role
@@ -116,6 +131,8 @@ class Dialog():
         self.remoteTarget = remoteTarget
         #self.secure = secure
         #self.routeSet = routeSet
+        self.rtpPort = rtpPort
+        self.rtcpPort = rtcpPort
 
         self.transactionUser.addDialog(self)
 
@@ -125,17 +142,27 @@ class Dialog():
     def getRemoteTag(self):
         return self.remoteTag
     
+    def getRemoteURI(self):
+        return self.remoteURI
+    
     def getCallID(self):
         return self.callID
 
     def getLocalSeq(self):
         return self.localSeq
     
-    def setState(self, state):
-        self.state = state
-
     def getID(self):
         return self.dialogID
+    
+    def getRtpPorts(self):
+        return self.rtpPort, self.rtcpPort
+    
+    def setState(self, state):
+        self.state = state
+    
+    def setRtpPorts(self, rtpPort, rtcpPort):
+        self.rtpPort = rtpPort
+        self.rtcpPort = rtcpPort
     
     def cleanup(self):
         self.transactionUser.removeDialog(self)
@@ -176,7 +203,12 @@ class ClientTransaction(Transaction):
             self.fromTag = dialog.getLocalTag()
             self.toTag = dialog.getRemoteTag()
             self.callID = dialog.getCallID()
-            self.sequence = dialog.getLocalSeq() + 1        # TODO update dialog settings after request sent
+
+            # TODO update dialog settings after request sent
+            if self.requestMethod == "ACK":
+                self.sequence = dialog.getLocalSeq()
+            else:
+                self.sequence = dialog.getLocalSeq() + 1
         
         else:
             self.fromTag = hex(int(random.getrandbits(32)))[2:]
@@ -229,10 +261,12 @@ class ClientTransaction(Transaction):
 
             # Successfully opened dialog
             if 200 <= response["statusCode"] <= 299:
+                rtpPort, rtcpPort = _parseSDP(response['messageBody'])
                 if self.dialog:
                     self.dialog.setState(Dialog.CONFIRMED)
+                    self.dialog.setRtpPorts(rtpPort, rtcpPort)
                 else:
-                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
+                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
 
                 # Ack in seperate transaction
                 newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
@@ -338,7 +372,7 @@ class ServerTransaction(Transaction):
         self.fromTag = fromTag
         self.sequence = sequence + 1 # TODO update dialog settings after request sent
 
-        self.transactionUser.addServerTransaction(self)
+        self.transactionUser.addTransaction(self)
 
     async def handleRequest(self, method):
         if method == "INVITE":
@@ -457,11 +491,12 @@ o=Hotline {} {} IN IP4 {}\r
 s=SIP Call\r
 c=IN IP4 {}\r
 t=0 0\r
-m=audio {} RTP/AVP 123\r
+m=audio {} RTP/AVP 120\r
 a=sendrecv\r
-a=rtpmap:123 opus/48000/2\r
-a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, port)
-        
+a=rtpmap:120 opus/48000/2\r
+a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, port)
+        #a=fmtp:120\r
+
         return sdp
 
     @staticmethod
@@ -489,8 +524,10 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
             headers["From"] = "<sip:IPCall@{}:{}>;tag={}".format(localIP, localPort, fromTag)
             headers["To"] = "<sip:{}:{}>{}".format(remoteIP, remotePort, toTag)
             headers["Max-Forwards"] = "70"
-            if(type == "ACK"):
-                sequenceRequestType = "INVITE"
+            if type == "INVITE":
+                headers['Contact'] = '<sip:IPCall@{}>'.format(localIP)   # TODO I think we'd need the public ip for a request outside of LAN
+            # elif type == "ACK":
+            #     sequenceRequestType = "INVITE"
             else:
                 sequenceRequestType = type
 
@@ -520,7 +557,7 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
         message += "\r\n{}".format(messageBody)
         return message.encode("utf-8")
 
-    async def call(self, address, port):
+    async def invite(self, address, port):
         print("Attempting to intitate a call with {}:{}".format(address, port))
         transaction = ClientTransaction(self, "INVITE", (self.ip, self.port), (address, port), "Calling")
         dialog = await transaction.invite()
@@ -530,7 +567,7 @@ a=fmtp:123 maxplaybackrate=16000\r\n""".format(sessionID, sessionVersion, localA
     #     print("Call cancelled")
     #     # TODO send cancel request to handler
 
-    async def end(self, dialog, address, port):
+    async def bye(self, dialog, address, port):
         print("Ending call")
         transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (address, port), "Trying", dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
