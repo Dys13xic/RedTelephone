@@ -26,6 +26,9 @@ class Gateway(GatewayConnection):
     _eventListeners: dict
     _userID: int
     _sessionID: int
+    _voiceToken: str
+    _voiceEndpoint: str
+    _serverID: str
     _handshakeComplete: bool
 
     def __init__(self, token):
@@ -54,6 +57,11 @@ class Gateway(GatewayConnection):
                     self._handshakeComplete = True
                     self._userID = msgObj.d['user']['id']
 
+                if(msgObj.t == "VOICE_SERVER_UPDATE"):
+                    self._voiceToken = msgObj.d['token']
+                    self._voiceEndpoint = 'wss://' + msgObj.d['endpoint']
+                    self._serverID = msgObj.d['guild_id']
+
                     # TODO grab info for resuming session
 
                 # Pass to relevant event handler
@@ -81,6 +89,7 @@ class Gateway(GatewayConnection):
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY, data)
                 await self.send(identifyMsg)
 
+            # TODO is timer needed to verify heartbeat ack and connection still open?
             case OpCodes.HEARTBEAT_ACK:
                 pass
 
@@ -104,12 +113,20 @@ class Gateway(GatewayConnection):
     def getUserID(self):
         return self._userID
     
-    def setSessionID(self, sessionID):
-        self._sessionID = sessionID
-    
     def getSessionID(self):
         return self._sessionID
 
+    def setSessionID(self, sessionID):
+        self._sessionID = sessionID
+
+    def getVoiceToken(self):
+        return self._voiceToken
+    
+    def getVoiceEndpoint(self):
+        return self._voiceEndpoint
+
+    def getServerID(self):
+        return self._serverID
 
 if __name__ == "__main__":
     token = "foo"
