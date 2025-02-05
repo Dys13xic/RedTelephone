@@ -153,6 +153,11 @@ class Dialog():
     
     def getID(self):
         return self.dialogID
+
+    # TODO Clean up the way this method operates
+    def getRemoteIP(self):
+        _, remoteIP, _ = self.remoteURI.split(':', 2)
+        return remoteIP
     
     def getRtpPorts(self):
         return self.rtpPort, self.rtcpPort
@@ -370,38 +375,79 @@ class ServerTransaction(Transaction):
         self.callID = callID
         self.branch = branch
         self.fromTag = fromTag
-        self.sequence = sequence + 1 # TODO update dialog settings after request sent
+        self.sequence = sequence
 
         self.transactionUser.addTransaction(self)
-
-    async def handleRequest(self, method):
-        if method == "INVITE":
-            await self.invite()
-        else:
-            await self.nonInvite()
 
     def buildResponse(self, status):
         messageBody = ""
 
-        if self.requestMethod == "INVITE":
+        if status == "200 OK":
             messageBody = Sip._buildSDP(self.localIP, RTP_PORT)
 
         return Sip._buildMessage(status, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, self.requestMethod, self.fromTag, self.toTag, messageBody)
 
     async def invite(self):
-        # TODO implement behaviour for not accepting every call, i.e. 300 - 699 responses
         self.state = 'Proceeding'
-        response = self.buildResponse('200 OK')
+        response = self.buildResponse('100 Trying')
         self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+
+        response = self.buildResponse('180 Ringing')
+        self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+
+        # TODO replace condition to implement behaviour for not accepting every call, i.e. 300 - 699 responses
+        if True:
+            await asyncio.sleep(5)
+            response = self.buildResponse('200 OK')
+            self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+        else:
+            response = self.buildResponse('486 Busy Here')
+            self.state = 'Completed'
+
+            transactionTimeout = 64 * T1
+            request = None
+
+            async with asyncio.timeout(transactionTimeout):
+                attempts = 0
+                while(not request or request['method'] != 'ACK'):
+                    self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+
+                    retransmitInterval = (pow(2, attempts) * T1)
+                    retransmitInterval = min(T2, retransmitInterval)
+
+                    try:
+                        async with asyncio.timeout(retransmitInterval):
+                            request = await self.recvQueue.get()
+                            # TODO does this state update provide any value?
+                            if request['method'] == 'ACK':
+                                self.state = 'Confirmed'
+                    except TimeoutError:
+                        attempts += 1
+
+            # TODO handle possible transport error during request
+
+            if response:
+                if 300 <= response['statusCode'] <= 699:
+                    self.state = 'Completed'
+                    # Buffer response retransmissions
+                    try:
+                        async with asyncio.timeout(T4):
+                            while(True):
+                                response = await self.recvQueue.get()
+                    except TimeoutError:
+                        pass
+
+        
 
         # TODO The remote target MUST be set to the URI from the Contact header field of the request.
         remoteTarget = None
 
         self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAS, self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
-
         self.cleanup()
+
+        return self.dialog
         
-    async def nonInvite(self):
+    async def nonInvite(self, method):
         pass
         
     async def ack(self):
@@ -444,8 +490,9 @@ class SipEndpointProtocol:
 class Sip(SipEndpointProtocol):
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
-    def __init__(self, port=SIP_PORT):
+    def __init__(self, port=SIP_PORT, callback=None):
         self.port = port
+        self.callback = callback
         self.transactions = {}
         self.dialogs = {}
 
@@ -512,8 +559,14 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         (localIP, localPort) = localAddress
         (remoteIP, remotePort) = remoteAddress
 
+        if(fromTag):
+            fromTag = ';tag=' + fromTag
+
         if(toTag):
-            toTag = ";tag=" + toTag
+            if type == '100 Trying':
+                toTag = ''
+            else:
+                toTag = ";tag=" + toTag
 
         # TODO may need to handle ;received            
         headers = {"Call-ID": callID}
@@ -521,7 +574,7 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         if(type in ["INVITE", "ACK", "CANCLE", "BYE"]):            
             startLine = "{} SIP:{}:{} SIP/2.0\r\n".format(type, remoteIP, remotePort)
             headers["Via"] = "SIP/2.0/UDP {}:{}".format(localIP, localPort)
-            headers["From"] = "<sip:IPCall@{}:{}>;tag={}".format(localIP, localPort, fromTag)
+            headers["From"] = "<sip:IPCall@{}:{}>{}".format(localIP, localPort, fromTag)
             headers["To"] = "<sip:{}:{}>{}".format(remoteIP, remotePort, toTag)
             headers["Max-Forwards"] = "70"
             if type == "INVITE":
@@ -534,8 +587,11 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         elif(type in ["100 Trying", "180 Ringing", "200 OK", "400 Bad Request", "408 Request Timeout", "486 Busy Here", "487 Request Terminated"]):
             startLine = "SIP/2.0 {}\r\n".format(type)
             headers["Via"] = "SIP/2.0/UDP {}:{}".format(remoteIP, remotePort)
-            headers["From"] = "<sip:IPCall@{}:{}>".format(remoteIP, remotePort, fromTag)
-            headers["To"] = "<sip:{}:{}>".format(localIP, localPort, toTag)
+            headers["From"] = "<sip:IPCall@{}:{}>{}".format(remoteIP, remotePort, fromTag)
+            headers["To"] = "<sip:{}:{}>{}".format(localIP, localPort, toTag)
+
+            if type != '100 Trying':
+                headers['Contact'] = '<sip:{}:{}>'.format(localIP, localPort)
 
         else:
             print("{} Not implemented".format(type))
@@ -563,23 +619,24 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         dialog = await transaction.invite()
         return dialog
 
+    # TODO implement
     # def cancel(self, address, port):
     #     print("Call cancelled")
-    #     # TODO send cancel request to handler
 
-    async def bye(self, dialog, address, port):
+    async def bye(self, dialog):
         print("Ending call")
-        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (address, port), "Trying", dialog)
+        _, remoteIP, remotePort = dialog.remoteTarget.split(':', 2)
+        remotePort = int(remotePort)
+
+        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (remoteIP, remotePort), "Trying", dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
     async def handleMsg(self, data, addr):
-        # print(addr, data)
-        # Parse message
         message = _parseMessage(data, True)
         print(json.dumps(message, indent=4))
 
-        # Pass to matching transaction
+        # Pass response to matching transaction if one exists
         if(message["messageType"] == "Response"):
             key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
             if(key in self.transactions):
@@ -609,7 +666,11 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
                 sequence = message['headers']['CSeq']['sequence']
                 transaction = ServerTransaction(self, message['method'], (self.ip, self.port), (remoteIP, remotePort), callID, branch, fromTag, sequence, None, dialog)
                 
-                await transaction.handleRequest(message['method'])
+                if message['method'] == 'INVITE':
+                    dialog = await transaction.invite()
+                    await self.callback(dialog)
+                else:
+                    await transaction.nonInvite(message['method'])
 
         else:
             print("Unsupported message type")
