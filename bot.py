@@ -14,23 +14,26 @@ RTP_PORT = 5004
 RTCP_PORT = 5005
 SIP_PORT = 5060
 
+HOME_GUILD_ID = '729825988443111424'
+HOME_VOICE_CHANNEL_ID = '729825988443111428'
+
 
 class Bot:
     gateway: Gateway
     voiceGateway: VoiceGateway
-    initialVoiceServerUpdate: asyncio.Event
     voip = Voip
     discordEndpoint = RtpEndpoint
     phoneEndpoint = RtpEndpoint
-    voiceState = {}
+    initialVoiceServerUpdate: asyncio.Event
+    voiceState = dict
 
     def __init__(self, token):
         self.gateway = Gateway(token)
         self.voiceGateway = VoiceGateway()
-        self.initialVoiceServerUpdate = asyncio.Event()
         self.voip = Voip(SIP_PORT, RTP_PORT, RTCP_PORT)
         self.discordEndpoint = None
         self.phoneEndpoint = None
+        self.initialVoiceServerUpdate = asyncio.Event()
         self.voiceState = {}
 
 
@@ -71,25 +74,24 @@ if __name__ == "__main__":
 
                 break
 
+    @bot.voip.eventHandler
+    async def call_received():
+        await bot.gateway.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
+        # TODO send @ message to notify users of call
 
     @bot.gateway.eventHandler
     async def voice_server_update(msgObj):
-        try:
-            voiceToken = msgObj.d['token']
-            voiceEndpoint = 'wss://' + msgObj.d['endpoint']
-            serverID = msgObj.d['guild_id']
-        except KeyError as e:
-            print(e)
-            await bot.gateway._stop()
-
         userID = bot.gateway.getUserID()
         sessionID = bot.gateway.getSessionID()
+        voiceToken = bot.gateway.getVoiceToken()
+        voiceEndpoint = bot.gateway.getVoiceEndpoint()
+        serverID = bot.gateway.getServerID()
 
-        # TODO should the Bot class hold the UserID, ServerID, and sessionID? Note: they are shared by both gateways
         bot.voiceGateway.lateInit(userID, serverID, voiceToken, voiceEndpoint, sessionID)
         bot.initialVoiceServerUpdate.set()
 
 
+    # Initialize Discord RTP endpoint on Voice Gateway
     @bot.voiceGateway.eventHandler
     async def ready(msgObj):
         remoteIP, remotePort = msgObj.d['ip'], msgObj.d['port']
@@ -107,14 +109,16 @@ if __name__ == "__main__":
     @bot.voiceGateway.eventHandler
     async def session_description(msgObj):
         bot.discordEndpoint.setSecretKey(msgObj.d['secret_key'])
-        # TODO verify phonecall has been picked up and RTP endpoint exists before proxying
-        # Alternatively, create the RTP endpoint on INVITE sent and don't specify the remote address/port, could include a class var to store it...
+
+        # Wait for active VOIP session before proxying traffic
+        await bot.voip.getSessionStarted().wait()
         RtpEndpoint.proxy(bot.discordEndpoint, bot.voip.getRTPEndpoint(), yCtrl=bot.voip.getRTCPEndpoint())
-        
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(asyncio.gather(bot.voip.run(), bot.gateway.run(), bot.voiceGateway.runAfter(bot.initialVoiceServerUpdate)))
+    except KeyboardInterrupt:
+        print("Received exit, exiting")
     finally:
-        loop.close()    
+        loop.close()
