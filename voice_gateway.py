@@ -6,8 +6,8 @@ import asyncio
 from os import urandom
 from enum import Enum
 
-SOURCE_IP = '69.156.219.180'
-SOURCE_PORT = 5004
+SOURCE_IP = 'xxxxxxxxxxxxx'
+SOURCE_PORT = 5003
 
 
 class OpCodes(Enum):
@@ -88,7 +88,7 @@ class VoiceGateway(GatewayConnection):
                     print(e)
             
             case OpCodes.SESSION_DESCRIPTION.value:
-                data = {'speaking': 1, 'delay': 0, 'ssrc': self.ssrc}
+                data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
                 speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
                 try:
                     await self.send(speakingMsg)
