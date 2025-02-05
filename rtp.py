@@ -89,16 +89,15 @@ class RtpEndpointProtocol:
     def datagram_received(self, data, addr):
         raise NotImplementedError
 
-    def error_received(e):
+    def error_received(self, e):
         print("Error Received: ", e)
-        exit(1)
 
-    def connection_lost(e):
+    def connection_lost(self, e):
         print("Connection Lost: ", e)
-        exit(1)
 
     def stop(self):
         self._transport.close()
+        self._transport = None
 
 
 class RtpEndpoint(RtpEndpointProtocol):
@@ -123,12 +122,14 @@ class RtpEndpoint(RtpEndpointProtocol):
             else:
                 return
         else:
+            # Grandstream HT801 doesn't support RTP header extensions.
             msgObj.stripExtensionHeader()
         
-        try:
-            self._transport.sendto(msgObj.byteStringify())
-        except Exception as e:
-            print(e)
+        if self._transport:
+            try:
+                self._transport.sendto(msgObj.byteStringify())
+            except Exception as e:
+                print(e)
 
     def datagram_received(self, data, addr):
         msgObj = RtpMessage(data, self.encrypted)
