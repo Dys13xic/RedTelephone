@@ -6,7 +6,7 @@ import asyncio
 from os import urandom
 from enum import Enum
 
-SOURCE_IP = 'xxxxxxxxxxxxx'
+SOURCE_IP = '64.231.153.189'
 SOURCE_PORT = 5003
 
 
@@ -63,7 +63,7 @@ class VoiceGateway(GatewayConnection):
         # Update sequence number
         # Note: unlike the standard gateway, there isn't just one OpCode that contains sequence numbers
         if(msgObj.s):
-            self.setLastSequence(msgObj.s)
+            self.lastSequence = msgObj.s
 
         match msgObj.op:
 
@@ -149,8 +149,11 @@ class VoiceGateway(GatewayConnection):
         if listenerName in self._eventListeners.keys():
             await self._eventListeners[listenerName](msgObj)
 
+    async def resume(self, closeCode):
+        print(closeCode + ': bbbbbbbbbbbbbbbbbbbbbb')
+
     def genHeartBeat(self):
-        data = {'t': VoiceGateway.genNonce(), 'seq_ack': self._lastSequence}
+        data = {'t': VoiceGateway.genNonce(), 'seq_ack': self.lastSequence}
         return GatewayMessage(OpCodes.HEARTBEAT.value, data)
 
     @staticmethod
