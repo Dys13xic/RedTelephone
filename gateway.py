@@ -21,6 +21,22 @@ class OpCodes:
     HEARTBEAT_ACK = 11
     REQUEST_SOUNDBOURD_SOUNDS = 31
 
+class CloseCodes():
+    UNKNOWN_ERROR = 4000
+    UNKNOWN_OPCODE = 4001
+    DECODE_ERROR = 4002
+    NOT_AUTHENTICATED = 4003
+    AUTHENTICATION_FAILED = 4004
+    ALREADY_AUTHENTICATED = 4005
+    INVALID_SEQ = 4007
+    RATE_LIMITED = 4008
+    SESSION_TIMED_OUT = 4009
+    INVALID_SHARD = 4010
+    SHARDING_REQUIRED = 4011
+    INVALID_API_VERSION = 4012
+    INVALID_INTENT = 4013
+    DISALLOWED_INTENT = 4014
+
 
 class Gateway(GatewayConnection):
     _eventListeners: dict
@@ -33,10 +49,12 @@ class Gateway(GatewayConnection):
 
     def __init__(self, token):
         super().__init__(token, DEFAULT_ENDPOINT, '&encoding=json')
-
         self._eventListeners = {}
         self._userID = None
         self._sessionID = None
+        self._voiceToken = None
+        self._voiceEndpoint = None
+        self._serverID = None
         self._handshakeComplete = False
 
     def eventHandler(self, func):
@@ -48,21 +66,51 @@ class Gateway(GatewayConnection):
 
     async def processMsg(self, msgObj):
         match msgObj.op:
+            case OpCodes.HELLO:
+                # Update heartbeat interval
+                if("heartbeat_interval" in msgObj.d):
+                    self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
+
+                # TODO potentially check if resume_url also exists.
+                if self._sessionID:
+                    # Resume connection
+                    data = {'token': self.token, 'session_id': self._sessionID, 'seq': self.lastSequence}
+                    opcode = OpCodes.RESUME
+                else:
+                    # Identify to API
+                    data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9)}
+                    opcode = OpCodes.IDENTIFY
+                    
+                await self.send(GatewayMessage(opcode, data))
+
             case OpCodes.EVENT_DISPATCH:
                 # Update sequence number
                 if(msgObj.s):
-                    self.setLastSequence(msgObj.s)
+                    self.lastSequence = msgObj.s
 
                 if(msgObj.t == "READY"):
                     self._handshakeComplete = True
                     self._userID = msgObj.d['user']['id']
+                    # Info for resuming session
+                    self.setEndpoint = msgObj.d['resume_gateway_url']
+                    self._sessionID = msgObj.d['session_id']
+
+                    # TODO remove this code (only for testing)
+                    # TODO ----------------------------------------
+                    # TODO ----------------------------------------
+                    # TODO ----------------------------------------
+
+                    await asyncio.sleep(5)
+                    await self.send(GatewayMessage(27, {}))
+                    # TODO ----------------------------------------
+                    # TODO ----------------------------------------
+                    # TODO ----------------------------------------
+
 
                 if(msgObj.t == "VOICE_SERVER_UPDATE"):
                     self._voiceToken = msgObj.d['token']
                     self._voiceEndpoint = 'wss://' + msgObj.d['endpoint']
                     self._serverID = msgObj.d['guild_id']
-
-                    # TODO grab info for resuming session
 
                 # Pass to relevant event handler
                 if(msgObj.t.lower() in self._eventListeners.keys()):
@@ -74,20 +122,10 @@ class Gateway(GatewayConnection):
                 await self.send(msgObj)
 
             case OpCodes.RECONNECT:
-                pass
+                await self.reconnect()
 
             case OpCodes.INVALID_SESSION:
-                pass
-
-            case OpCodes.HELLO:
-                # Update heartbeat interval
-                if("heartbeat_interval" in msgObj.d):
-                    self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
-                # Identify to API
-
-                data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9)}
-                identifyMsg = GatewayMessage(OpCodes.IDENTIFY, data)
-                await self.send(identifyMsg)
+                await self.reconnect(resumable=msgObj.d)
 
             # TODO is timer needed to verify heartbeat ack and connection still open?
             case OpCodes.HEARTBEAT_ACK:
@@ -96,8 +134,12 @@ class Gateway(GatewayConnection):
             case _:
                 raise ValueError("Unsupported OP code in gateway msg {}".format(msgObj.op))
             
+    def clean(self):
+        super().clean()
+        self._endpoint = DEFAULT_ENDPOINT
+    
     def genHeartBeat(self):
-        return GatewayMessage(OpCodes.HEARTBEAT, self._lastSequence)
+        return GatewayMessage(OpCodes.HEARTBEAT, self.lastSequence)
     
     # TODO is this method needed?
     async def joinVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
@@ -127,21 +169,24 @@ class Gateway(GatewayConnection):
 
     def getServerID(self):
         return self._serverID
+    
+    def isResumable(self, closeCode):
+        if closeCode in [CloseCodes.UNKNOWN_ERROR, CloseCodes.DECODE_ERROR, CloseCodes.NOT_AUTHENTICATED, CloseCodes.ALREADY_AUTHENTICATED, 
+                         CloseCodes.INVALID_SEQ, CloseCodes.RATE_LIMITED, CloseCodes.SESSION_TIMED_OUT]:
+            return True
+        else:
+            return False
 
 if __name__ == "__main__":
-    token = "foo"
+    # Retrieve the discord bot token
+    try:
+        tokenFile = open("token.txt", 'r')
+        token = tokenFile.readline()
+    except:
+        print("ERROR: Unable to open/read token.txt")
+        
     gw = Gateway(token)
-
-    @gw.eventHandler
-    def ready(msgObj):
-        print("xxxxxxxxxxxxxxxx")
-        print(msgObj)
-        print("XXXXXXXXXXXXXXXXX")
-
-    # asyncio.run(gw._run())
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(gw.run())
-    finally:
-        loop.close()
+    loop.run_until_complete(gw.run())
+    loop.close()
