@@ -30,65 +30,70 @@ class GatewayMessage:
         classObj = GatewayMessage(**jsonDict)
         return classObj
 
-
 class GatewayConnection:
     token: str
+    lastSequence: int = None
     _endpoint: str
     _params: str
     _heartbeatInterval: float
-    _lastSequence: int = None
     _sendQueue: asyncio.Queue
+    _tasks: asyncio.Future
 
     def __init__(self, token, endpoint, params=''):
         self.token = token
+        self.lastSequence = None
         self._endpoint = endpoint
         self._params = params
         self._heartbeatInterval = 1
-        self._lastSequence = None
         self._sendQueue = asyncio.Queue()
+        self._tasks = None
 
     async def run(self):
         logging.basicConfig(format='%(message)s', level=logging.DEBUG)
         os.environ['WEBSOCKETS_MAX_LOG_SIZE'] = '1000'
 
-        async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
-            await asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
-
+        while True:
+            try:
+                await self._start()
+            except websockets.exceptions.ConnectionClosedError as e:
+                self._stop(e.code)
+            except Exception as e:
+                print(e)
+            
     async def runAfter(self, event):
         await event.wait()
         await self.run()
+
+    async def _start(self):
+        async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
+            self._tasks = asyncio.gather(self._recvLoop(websock), self._sendLoop(websock), self._heartbeatLoop())
+            await self._tasks
         
-    def _stop(self):
-        self._recvTask.cancel()
-        self._sendTask.cancel()
-        self._heartbeatTask.cancel()
+    def _stop(self, closeCode=None, alwaysClean=False):
+        self._tasks.cancel()
+        if closeCode and not self.isResumable(closeCode):
+            self.clean()
 
     async def _sendLoop(self, websock):
         while True:
+            # try:
             msg = await self._sendQueue.get()
-            # print('\033[32m' + msg)
-            try:
-                await websock.send(msg)
-
-            except websockets.exceptions.ConnectionClosed as e:
-                print(e)
-                await self._stop()       
-            except Exception as e:
-                print(e)
+            await websock.send(msg)
+            # except websockets.exceptions.ConnectionClosedError as e:
+            #     raise
+            # except Exception as e:
+            #     print(e)
 
     async def _recvLoop(self, websock):
         while True:
-            try:
-                msg = await websock.recv()
-                # print('\033[31m' + msg + '\033[39m')
-                msgObj = GatewayMessage.objectify(msg)
-                await self.processMsg(msgObj)
-
-            except websockets.exceptions.ConnectionClosed as e:
-                print(e)
-                await self._stop()
-            except Exception as e:
-                print(e)
+            # try:
+            msg = await websock.recv()
+            msgObj = GatewayMessage.objectify(msg)
+            await self.processMsg(msgObj)
+            # except websockets.exceptions.ConnectionClosedError as e:
+            #     raise
+            # except Exception as e:
+            #     print(e)
 
     async def _heartbeatLoop(self):
         while True:
@@ -105,16 +110,29 @@ class GatewayConnection:
     def setHeartbeatInterval(self, ms):
         self._heartbeatInterval = ms / 1000
 
-    def setLastSequence(self, sequence):
-        self._lastSequence = sequence
-
     async def send(self, msgObj):
         await self._sendQueue.put(msgObj.stringify())
 
+    async def reconnect(self, resumable=True):
+        self._stop()
+        if not resumable:
+            self.clean()
+
+        await self._start()
+
+    def clean(self):
+        self.lastSequence = None
+        # self._heartbeatInterval = 1
+        self._sendQueue = asyncio.Queue()
+        self._tasks = None
+
     async def processMsg(self, msgObj):
         raise NotImplementedError
-    
+
     def genHeartBeat(self):
+        raise NotImplementedError
+    
+    def isResumable(self, closeCode):
         raise NotImplementedError
 
 
