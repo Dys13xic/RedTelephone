@@ -1,7 +1,5 @@
 # 1st Party
-from gateway_connection import GatewayMessage
-from gateway import Gateway
-from voice_gateway import VoiceGateway
+from client import Client
 from rtp import RtpEndpoint
 from voip import Voip 
 
@@ -9,33 +7,13 @@ from voip import Voip
 import sys
 import asyncio
 
-DISCORD_RTP_PORT = 5003
 RTP_PORT = 5004
 RTCP_PORT = 5005
 SIP_PORT = 5060
 
 HOME_GUILD_ID = '729825988443111424'
 HOME_VOICE_CHANNEL_ID = '729825988443111428'
-
-
-class Bot:
-    gateway: Gateway
-    voiceGateway: VoiceGateway
-    voip = Voip
-    discordEndpoint = RtpEndpoint
-    phoneEndpoint = RtpEndpoint
-    initialVoiceServerUpdate: asyncio.Event
-    voiceState = dict
-
-    def __init__(self, token):
-        self.gateway = Gateway(token)
-        self.voiceGateway = VoiceGateway()
-        self.voip = Voip(SIP_PORT, RTP_PORT, RTCP_PORT)
-        self.discordEndpoint = None
-        self.phoneEndpoint = None
-        self.initialVoiceServerUpdate = asyncio.Event()
-        self.voiceState = {}
-
+HOME_TEXT_CHANNEL_ID = '729825988443111428'
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -46,79 +24,50 @@ if __name__ == "__main__":
         print("ERROR: Unable to open/read token.txt")
         sys.exit(1)
 
-    bot = Bot(token)
+    client = Client(token)
+    voip = Voip(SIP_PORT, RTP_PORT, RTCP_PORT)
 
-    # Track the voice state of all users and update bot session ID
-    @bot.gateway.eventHandler
-    async def voice_state_update(msgObj):
-        if msgObj.d['user_id'] == bot.gateway.getUserID():
-            bot.gateway.setSessionID(msgObj.d['session_id'])
-        bot.voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
+    @client.event
+    async def on_user_mention(msgData):
+        authorID = msgData['author']['id']
+        # TODO is it more appropriate to keep the stuff users would see to client?
+        voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
+        if msgData['guild_id'] == voiceServerID and voiceChannelID:
+            await client.joinVoiceChannel(voiceServerID, voiceChannelID)
+            await voip.call('10.13.0.6')
+        else:
+            client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
 
-
-    # Initiate VOIP call on bot mention
-    @bot.gateway.eventHandler
-    async def message_create(msgObj):
-        botID = bot.gateway.getUserID()
-        authorID = msgObj.d['author']['id']
-        voiceGuildID, voiceChannelID = bot.voiceState.get(authorID, [None, None])
-
-        for user in msgObj.d['mentions']:
-            if user['id'] == botID:
-                if msgObj.d['guild_id'] == voiceGuildID:
-                    await bot.gateway.joinVoiceChannel(voiceGuildID, voiceChannelID)
-                    await bot.voip.call('10.13.0.6')
-                else:
-                    # TODO send message to text channel stating user isn't in a voice channel within that guild.
-                    pass
-
-                break
-
-    @bot.voip.eventHandler
-    async def call_received():
-        await bot.gateway.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
-        # TODO send @ message to notify users of call
-
-    @bot.gateway.eventHandler
-    async def voice_server_update(msgObj):
-        userID = bot.gateway.getUserID()
-        sessionID = bot.gateway.getSessionID()
-        voiceToken = bot.gateway.getVoiceToken()
-        voiceEndpoint = bot.gateway.getVoiceEndpoint()
-        serverID = bot.gateway.getServerID()
-
-        bot.voiceGateway.lateInit(userID, serverID, voiceToken, voiceEndpoint, sessionID)
-        bot.initialVoiceServerUpdate.set()
-
-
-    # Initialize Discord RTP endpoint on Voice Gateway
-    @bot.voiceGateway.eventHandler
-    async def ready(msgObj):
-        remoteIP, remotePort = msgObj.d['ip'], msgObj.d['port']
-        ssrc = msgObj.d['ssrc']
-
-        loop = asyncio.get_event_loop()
-        _, endpoint = await loop.create_datagram_endpoint(
-            lambda: RtpEndpoint(ssrc=ssrc, encrypted=True),
-            local_addr=("0.0.0.0", DISCORD_RTP_PORT),
-            remote_addr=(remoteIP, remotePort)
-        )
-        bot.discordEndpoint = endpoint
-
-
-    @bot.voiceGateway.eventHandler
-    async def session_description(msgObj):
-        bot.discordEndpoint.setSecretKey(msgObj.d['secret_key'])
-
+    @client.event
+    async def on_voice_secret_received():
         # Wait for active VOIP session before proxying traffic
-        await bot.voip.getSessionStarted().wait()
-        RtpEndpoint.proxy(bot.discordEndpoint, bot.voip.getRTPEndpoint(), yCtrl=bot.voip.getRTCPEndpoint())
+        await voip.getSessionStarted().wait()
+        RtpEndpoint.proxy(client.voiceGateway.getRTPEndpoint(), voip.getRTPEndpoint(), yCtrl=voip.getRTCPEndpoint())
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(asyncio.gather(bot.voip.run(), bot.gateway.run(), bot.voiceGateway.runAfter(bot.initialVoiceServerUpdate)))
-    except KeyboardInterrupt:
-        print("Received exit, exiting")
-    finally:
-        loop.close()
+
+    @voip.event
+    async def on_inbound_call_accepted():
+        await client.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
+        client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
+        # TODO send @ message to notify users of call
+        # client.messageCreate(contents, channelID)
+
+    @voip.event
+    async def on_inbound_call_end():
+        pass
+        # TODO disconnect from voice
+
+    async def main():
+        await asyncio.gather(client.run(), voip.run())
+
+    # Leaving here for ease of finding in other files
+    # @bot.voip.eventHandler
+    # async def inbound_call_accepted():
+    #     await bot.gateway.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
+
+    # @bot.voip.eventHandler
+    # async def inbound_call_ended():
+    #     await bot.gateway.joinVoiceChannel(None, None)
+    #     pass
+
+    asyncio.run(main())
