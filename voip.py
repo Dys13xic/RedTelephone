@@ -24,13 +24,13 @@ class Voip():
         self._eventListeners = {}
         self.sessionStarted = asyncio.Event()
 
-    def eventHandler(self, func):
+    def event(self, func):
         self._eventListeners[func.__name__] = func
     
     async def run(self):
         loop = asyncio.get_event_loop()
         _, self.sipEndpoint = await loop.create_datagram_endpoint(
-        lambda: Sip(port=self.sipPort, callback=self.callReceived),
+        lambda: Sip(port=self.sipPort, inviteReceivedCallback=self.inboundCallAccepted, byeReceivedCallback=self.inboundCallEnded),
         local_addr=("0.0.0.0", self.sipPort),
         )
 
@@ -62,17 +62,9 @@ class Voip():
 
     async def endCall(self):
         await self.sipEndpoint.bye(self.activeDialog)
+        self._cleanup()
 
-        self.rtpEndpoint.stop()
-        self.rtcpEndpoint.stop()
-
-        self.activeDialog = None
-        self.rtpEndpoint, self.rtcpEndpoint = None, None
-
-        self.sessionStarted.clear()
-
-
-    async def callReceived(self, dialog):
+    async def inboundCallAccepted(self, dialog):
         endpoint = None
 
         if dialog:
@@ -100,8 +92,24 @@ class Voip():
         self.sessionStarted.set()
 
         # Call relevant event handler
-        if('call_received' in self._eventListeners.keys()):
-            await self._eventListeners['call_received']()
+        if 'inbound_call_accepted' in self._eventListeners.keys():
+            await self._eventListeners['inbound_call_accepted']()
+
+    async def inboundCallEnded(self):
+        self.cleanup()
+
+        # Call relevant event handler
+        if 'inbound_call_ended' in self._eventListeners.keys():
+            await self._eventListeners['inbound_call_ended']()
+
+    def cleanup(self):
+        self.rtpEndpoint.stop()
+        self.rtcpEndpoint.stop()
+
+        self.activeDialog = None
+        self.rtpEndpoint, self.rtcpEndpoint = None, None
+
+        self.sessionStarted.clear()
 
     def getRTPEndpoint(self):
         return self.rtpEndpoint
