@@ -397,7 +397,7 @@ class ServerTransaction(Transaction):
 
         # TODO replace condition to implement behaviour for not accepting every call, i.e. 300 - 699 responses
         if True:
-            await asyncio.sleep(5)
+            # TODO, keep phone ringing until secret received?
             response = self.buildResponse('200 OK')
             self.transactionUser.send(response, (self.remoteIP, self.remotePort))
         else:
@@ -407,6 +407,16 @@ class ServerTransaction(Transaction):
             transactionTimeout = 64 * T1
             request = None
 
+            # TODO
+            # while in the "Completed" state, if a request retransmission is
+            # received, the server SHOULD pass the response to the transport for
+            # retransmission.
+
+            # TODO handle possible timeout
+            # If timer H fires while in the "Completed" state, it implies that the
+            #    ACK was never received.  In this case, the server transaction MUST
+            #    transition to the "Terminated" state, and MUST indicate to the TU
+            #    that a transaction failure has occurred.
             async with asyncio.timeout(transactionTimeout):
                 attempts = 0
                 while(not request or request['method'] != 'ACK'):
@@ -426,7 +436,7 @@ class ServerTransaction(Transaction):
 
             # TODO handle possible transport error during request
 
-            if response:
+            if request:
                 if 300 <= response['statusCode'] <= 699:
                     self.state = 'Completed'
                     # Buffer response retransmissions
@@ -448,7 +458,14 @@ class ServerTransaction(Transaction):
         return self.dialog
         
     async def nonInvite(self, method):
-        pass
+        self.state = 'Proceeding'
+
+        if method == 'BYE':
+            response = self.buildResponse('200 OK')
+        else:
+            # TODO implement additional requests
+            print('Unsupported Request')
+
         
     async def ack(self):
         pass
@@ -490,9 +507,10 @@ class SipEndpointProtocol:
 class Sip(SipEndpointProtocol):
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
-    def __init__(self, port=SIP_PORT, callback=None):
+    def __init__(self, port=SIP_PORT, inviteReceivedCallback=None, byeReceivedCallback=None):
         self.port = port
-        self.callback = callback
+        self.inviteReceivedCallback = inviteReceivedCallback
+        self.byeReceivedCallback = byeReceivedCallback
         self.transactions = {}
         self.dialogs = {}
 
@@ -657,6 +675,9 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
             if (key in self.transactions and(message['method'] == self.transactions[key].getRequestMethod() or
                                                     (message['method'] == 'ACK' and self.transactions[key].getRequestMethod == "INVITE"))):
                 await self.transactions[key].getRecvQueue().put(message)
+            elif message['method'] == 'ACK':
+                # Do not process orphaned ACK
+                pass
             else:
                 remoteIP = message['headers']['Via']['IP']
                 remotePort = message['headers']['Via']['port']
@@ -668,9 +689,11 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
                 
                 if message['method'] == 'INVITE':
                     dialog = await transaction.invite()
-                    await self.callback(dialog)
+                    await self.inviteReceivedCallback(dialog)
                 else:
                     await transaction.nonInvite(message['method'])
+                    if message['method'] == 'BYE':
+                        await self.byeReceivedCallback()
 
         else:
             print("Unsupported message type")
@@ -698,3 +721,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+#TODO what about implementing an abstract or interface TU class
+# Then I can implement or inherit from it and pass and requests for the TU to it for handling.
+# It can then call the Voip class instead of SIP doing it directly?
