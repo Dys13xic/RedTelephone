@@ -1,5 +1,9 @@
 # 1st Party
 from gateway_connection import GatewayConnection, GatewayMessage
+from events import EventHandler
+
+# 3rd Party
+import websockets
 
 # Standard Library
 import asyncio
@@ -39,30 +43,52 @@ class CloseCodes():
 
 
 class Gateway(GatewayConnection):
-    _eventListeners: dict
     _userID: int
     _sessionID: int
-    _voiceToken: str
-    _voiceEndpoint: str
-    _serverID: str
-    _handshakeComplete: bool
+    _eventDispatcher: EventHandler.dispatch
+    _voiceState: dict
 
-    def __init__(self, token):
+    def __init__(self, token, eventDispatcher):
         super().__init__(token, DEFAULT_ENDPOINT, '&encoding=json')
-        self._eventListeners = {}
         self._userID = None
         self._sessionID = None
-        self._voiceToken = None
-        self._voiceEndpoint = None
-        self._serverID = None
-        self._handshakeComplete = False
+        self._eventDispatcher = eventDispatcher
+        self._voiceState = {}
 
-    def eventHandler(self, func):
-        def wrapper(instanceSelf, *args, **kwargs):
-            return func(instanceSelf, *args, **kwargs)
-        
-        self._eventListeners[func.__name__] = wrapper
-        return wrapper
+    def getUserID(self):
+        return self._userID
+    
+    def getSessionID(self):
+        return self._sessionID
+
+    def setSessionID(self, sessionID):
+        self._sessionID = sessionID
+
+    def getVoiceState(self, userID):
+        return self._voiceState.get(userID, [None, None])
+
+    async def connect(self):
+        # TODO add exponential backoff?
+        await self._start()
+        # while True:
+        #     try:
+        #         await self._start()
+        #     # TODO add error logging?
+        #     except websockets.exceptions.ConnectionClosedOK:
+        #         self._stop(clean=True)
+        #     except websockets.exceptions.ConnectionClosedError as e:
+        #         clean = not self.isResumable(e.code)
+        #         self._stop(clean)
+        #     except asyncio.exceptions.CancelledError as e:
+        #         print('Task cancelled')
+        #     except Exception as e:
+        #         print(e)
+
+    def _clean(self):
+        super()._clean()
+        self._sessionID = None
+        self.setEndpoint(DEFAULT_ENDPOINT)
+        self.setParams('&encoding=json')
 
     async def processMsg(self, msgObj):
         match msgObj.op:
@@ -71,7 +97,6 @@ class Gateway(GatewayConnection):
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
 
-                # TODO potentially check if resume_url also exists.
                 if self._sessionID:
                     # Resume connection
                     data = {'token': self.token, 'session_id': self._sessionID, 'seq': self.lastSequence}
@@ -88,44 +113,42 @@ class Gateway(GatewayConnection):
                 if(msgObj.s):
                     self.lastSequence = msgObj.s
 
-                if(msgObj.t == "READY"):
-                    self._handshakeComplete = True
+                eventType = msgObj.t
+                args = []
+
+                if eventType == "READY":
                     self._userID = msgObj.d['user']['id']
-                    # Info for resuming session
                     self.setEndpoint = msgObj.d['resume_gateway_url']
                     self._sessionID = msgObj.d['session_id']
 
-                    # TODO remove this code (only for testing)
-                    # TODO ----------------------------------------
-                    # TODO ----------------------------------------
-                    # TODO ----------------------------------------
+                if eventType == 'MESSAGE_CREATE':
+                    args = [msgObj.d]
 
-                    await asyncio.sleep(5)
-                    await self.send(GatewayMessage(27, {}))
-                    # TODO ----------------------------------------
-                    # TODO ----------------------------------------
-                    # TODO ----------------------------------------
+                if eventType == 'VOICE_STATE_UPDATE':
+                    # Track user's current voice channel
+                    self._voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
+                    # Keep bot session ID up-to-date
+                    if msgObj.d['user_id'] == self.getUserID():
+                        self._sessionID = msgObj.d['session_id']
 
 
-                if(msgObj.t == "VOICE_SERVER_UPDATE"):
-                    self._voiceToken = msgObj.d['token']
-                    self._voiceEndpoint = 'wss://' + msgObj.d['endpoint']
-                    self._serverID = msgObj.d['guild_id']
+                if eventType == "VOICE_SERVER_UPDATE":
+                    args = [msgObj.d['token'],
+                             'wss://' + msgObj.d['endpoint']]
 
                 # Pass to relevant event handler
-                if(msgObj.t.lower() in self._eventListeners.keys()):
-                    await self._eventListeners[msgObj.t.lower()](msgObj)
+                await self._eventDispatcher(msgObj.t.lower(), *args)
 
-            # TODO, see if you can reset sleep timer on HeartBeat request (as this function will run immediately, resulting in an early follow-up heartbeat)
             case OpCodes.HEARTBEAT:
                 msgObj = self.genHeartBeat()
                 await self.send(msgObj)
 
             case OpCodes.RECONNECT:
-                await self.reconnect()
+                self._stop(clean=False)
 
             case OpCodes.INVALID_SESSION:
-                await self.reconnect(resumable=msgObj.d)
+                clean = not msgObj.d
+                self._stop(clean)
 
             # TODO is timer needed to verify heartbeat ack and connection still open?
             case OpCodes.HEARTBEAT_ACK:
@@ -133,42 +156,9 @@ class Gateway(GatewayConnection):
 
             case _:
                 raise ValueError("Unsupported OP code in gateway msg {}".format(msgObj.op))
-            
-    def clean(self):
-        super().clean()
-        self._endpoint = DEFAULT_ENDPOINT
     
     def genHeartBeat(self):
         return GatewayMessage(OpCodes.HEARTBEAT, self.lastSequence)
-    
-    # TODO is this method needed?
-    async def joinVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
-        if not self._handshakeComplete:
-            raise Exception('Gateway handshake not complete.')
-
-        data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
-        try:
-            await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
-        except Exception as e:
-            print(e)
-    
-    def getUserID(self):
-        return self._userID
-    
-    def getSessionID(self):
-        return self._sessionID
-
-    def setSessionID(self, sessionID):
-        self._sessionID = sessionID
-
-    def getVoiceToken(self):
-        return self._voiceToken
-    
-    def getVoiceEndpoint(self):
-        return self._voiceEndpoint
-
-    def getServerID(self):
-        return self._serverID
     
     def isResumable(self, closeCode):
         if closeCode in [CloseCodes.UNKNOWN_ERROR, CloseCodes.DECODE_ERROR, CloseCodes.NOT_AUTHENTICATED, CloseCodes.ALREADY_AUTHENTICATED, 
@@ -176,6 +166,17 @@ class Gateway(GatewayConnection):
             return True
         else:
             return False
+    
+    async def signalVoiceChannelJoin(self, guildID, channelID, selfMute=False, selfDeaf=False):
+        # if not self._handshakeComplete:
+        #     raise Exception('Gateway handshake not complete.')
+
+        data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
+        # try:
+        await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
+        # except Exception as e:
+        #     print(e)
+
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -188,5 +189,5 @@ if __name__ == "__main__":
     gw = Gateway(token)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(gw.run())
+    loop.run_until_complete(gw.connect())
     loop.close()

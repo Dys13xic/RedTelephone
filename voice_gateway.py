@@ -1,11 +1,18 @@
 # 1st Party
 from gateway_connection import GatewayConnection, GatewayMessage
+from gateway import Gateway
+from events import EventHandler
+from rtp import RtpEndpoint
+
+# 3rd Party
+import websockets
 
 # Standard Library
 import asyncio
 from os import urandom
 from enum import Enum
 
+DISCORD_RTP_PORT = 5003
 SOURCE_IP = '64.231.153.189'
 SOURCE_PORT = 5003
 
@@ -35,81 +42,99 @@ class OpCodes(Enum):
     DAVE_MLS_WELCOME = 30
     DAVE_MLS_INVALID_COMMIT_WELCOME = 31
 
+class CloseCodes():
+    UNKNOWN_OPCODE = 4001
+    FAILED_TO_DECODE_PAYLOAD = 4002
+    NOT_AUTHENTICATED = 4003
+    AUTHENTICATION_FAILED = 4004
+    ALREADY_AUTHENTICATED = 4005
+    SESSION_NO_LONGER_VALID = 4006
+    SESSION_TIMEOUT = 4009
+    SERVER_NOT_FOUND = 4011
+    UNKNOWN_PROTOCOL = 4012
+    DISCONNECTED = 4014
+    VOICE_SERVER_CRASHED = 4015
+    UNKNOWN_ENCRYPTION_MODE = 4016
+    BAD_REQUEST = 4020
+
 class VoiceGateway(GatewayConnection):
-    _eventListeners: dict = {}
-    ssrc: int = None
+    gateway: Gateway
+    serverID: str
+    channelID: str
+    eventDispatcher: EventHandler.dispatch
+    token: str
+    endpoint: str
+    ssrc: int
+    RTPEndpoint: RtpEndpoint
 
-    def __init__(self, userID=None, serverID=None, token=None, endpoint=None, sessionID=None):
-        super().__init__(token, endpoint)
-        self._userID = userID
-        self._serverID = serverID
-        self._sessionID = sessionID
+    def __init__(self, gateway, serverID, channelID, eventDispatcher):
+        self.gateway = gateway
+        self.serverID = serverID
+        self.channelID = channelID
+        self.eventDispatcher = eventDispatcher
+        self.token = None
+        self.endpoint = None
+        self.ssrc = None
+        self.RTPEndpoint = None
+        super().__init__(self.token, self.endpoint)
 
-    def lateInit(self, userID, serverID, token, endpoint, sessionID):
-        self.setToken(token)
-        self.setEndpoint(endpoint)
-        self._userID = userID
-        self._serverID = serverID
-        self._sessionID = sessionID
+    def getRTPEndpoint(self):
+        return self.RTPEndpoint
 
-    def eventHandler(self, func):
-        def wrapper(instanceSelf, *args, **kwargs):
-            return func(instanceSelf, *args, **kwargs)
-        
-        self._eventListeners[func.__name__] = wrapper
-        return wrapper
+    async def connect(self):
+        await self._start()
 
     async def processMsg(self, msgObj):
         # Update sequence number
-        # Note: unlike the standard gateway, there isn't just one OpCode that contains sequence numbers
         if(msgObj.s):
             self.lastSequence = msgObj.s
 
+        eventName = OpCodes(msgObj.op).name
+        args = []
+
         match msgObj.op:
-
-            case OpCodes.READY.value:
-                try:
-                    # TODO add check for modes containing: aead_xchacha20_poly1305_rtpsize
-                    self.ssrc = msgObj.d['ssrc']
-                    ip = msgObj.d['ip']
-                    port = msgObj.d['port']
-                    modes = msgObj.d['modes']
-                except Exception as e:
-                    print(e)
-                    await self._stop()
-
-                # TODO Establish UDP socket for RTP and peform IP discovery
-                # TODO replace local address info
-                data = {'protocol': 'udp', 'data': {'address': SOURCE_IP, 'port': SOURCE_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
-                selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL.value, data)
-                try:
-                    await self.send(selectMsg)
-                except Exception as e:
-                    print(e)
-            
-            case OpCodes.SESSION_DESCRIPTION.value:
-                data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
-                speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
-                try:
-                    await self.send(speakingMsg)
-                except Exception as e:
-                    print(e)
-
-            case OpCodes.SPEAKING.value:
-                pass
-
-            case OpCodes.HEARTBEAT_ACK.value:
-                pass
-
             case OpCodes.HELLO.value:
                 # Update heartbeat interval
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                     
                 # Identify to API
-                data = {'server_id': self._serverID, 'user_id': self._userID, 'session_id': self._sessionID, 'token': self.token}
+                data = {'server_id': self.serverID, 'user_id': self.gateway.getUserID(), 'session_id': self.gateway.getSessionID(), 'token': self.token}
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY.value, data)
                 await self.send(identifyMsg)
+
+            case OpCodes.READY.value:
+                self.ssrc = msgObj.d['ssrc']
+                remoteIP = msgObj.d['ip']
+                remotePort = msgObj.d['port']
+
+                # Establish an RTP endpoint for voice data
+                loop = asyncio.get_event_loop()
+                _, endpoint = await loop.create_datagram_endpoint(
+                    lambda: RtpEndpoint(ssrc=self.ssrc, encrypted=True),
+                    local_addr=("0.0.0.0", DISCORD_RTP_PORT),
+                    remote_addr=(remoteIP, remotePort)
+                )
+                self.RTPEndpoint = endpoint
+            
+                # TODO Establish UDP socket for RTP and peform IP discovery
+                # IOT replace local address info
+                data = {'protocol': 'udp', 'data': {'address': SOURCE_IP, 'port': SOURCE_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
+                selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL.value, data)
+                await self.send(selectMsg)
+
+            case OpCodes.SESSION_DESCRIPTION.value:
+                self.RTPEndpoint.setSecretKey(msgObj.d['secret_key'])
+
+                data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
+                speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
+                await self.send(speakingMsg)
+
+            case OpCodes.SPEAKING.value:
+                pass
+
+            case OpCodes.HEARTBEAT_ACK.value:
+                pass
 
             case OpCodes.RESUMED.value:
                 pass
@@ -145,12 +170,7 @@ class VoiceGateway(GatewayConnection):
                 raise ValueError("Unsupported OP code in voice_gateway msg {}".format(msgObj.op))
 
         # Pass to relevant event handler
-        listenerName = OpCodes(msgObj.op).name.lower()
-        if listenerName in self._eventListeners.keys():
-            await self._eventListeners[listenerName](msgObj)
-
-    async def resume(self, closeCode):
-        print(closeCode + ': bbbbbbbbbbbbbbbbbbbbbb')
+        await self.eventDispatcher(eventName.lower(), *args)
 
     def genHeartBeat(self):
         data = {'t': VoiceGateway.genNonce(), 'seq_ack': self.lastSequence}
