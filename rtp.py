@@ -169,15 +169,3 @@ class RtpEndpoint(RtpEndpointProtocol):
             xCtrl.ctrlProxyEndpoint = yCtrl
         if yCtrl:
             yCtrl.ctrlProxyEndpoint = xCtrl
-
-# Test code
-async def main():
-    loop = asyncio.get_event_loop()
-    _, phoneEndpoint = await loop.create_datagram_endpoint(
-        lambda: RtpEndpoint(encrypted=False),
-        local_addr=("0.0.0.0", 5004)
-    )
-    await asyncio.sleep(360)
-
-if __name__ == "__main__":
-    asyncio.run(main())
