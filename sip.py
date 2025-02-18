@@ -1,3 +1,6 @@
+# 1st Party Library
+from sipMessage import SipMessage, MessageType
+
 # Standard Library
 import asyncio
 import socket
@@ -29,85 +32,6 @@ def _parseSDP(messageBody):
             rtcpPort = int(firstArg[len('a=rtcp:'):])
 
     return rtpPort, rtcpPort
-
-def _parseParameters(parameters):
-    parameterDict = {}
-    for parameter in parameters:
-        parameterList = parameter.split("=", 1)
-        label = parameterList[0]
-        content = parameterList[1] if len(parameterList) == 2 else ""
-        parameterDict[label] = content
-
-    return parameterDict
-
-def _parseHeader(label, headerDict):
-    content = headerDict[label]
-
-    if label == "CSeq":
-        sequence, method = content.strip().split(" ")
-        subHeadingDict = {"sequence": int(sequence), "method": method}
-
-    elif label in ["From", "To"]:
-        temp = content.strip().split(";")
-        contact = temp[0]
-        parameters = temp[1:] if len(temp) >= 2 else []
-        subHeadingDict = _parseParameters(parameters)
-        subHeadingDict["URI"] = contact
-
-    elif label == "Via":
-        protocol, temp = content.strip().split(" ", 1)
-        tempList = temp.split(";")
-        address = tempList[0]
-        parameters = tempList[1:]
-        subHeadingDict = _parseParameters(parameters)
-        subHeadingDict["protocol"] = protocol
-        subHeadingDict["IP"], subHeadingDict['port'] = address.split(':', 1)
-        subHeadingDict['port'] = int(subHeadingDict['port'])
-    
-    else:
-        print("Unsupported header")
-        exit()
-
-    headerDict[label] = subHeadingDict
-
-def _parseMessage(data, deepHeaderParse=False):
-    startLineEncoded = data.split(b"\r\n", 1)[0]
-    headersEncoded, messageBodyEncoded = data.split(b"\r\n\r\n")
-    
-    startLine = startLineEncoded.decode("utf-8")
-    messageBody = messageBodyEncoded.decode("utf-8")
-    headers = headersEncoded.decode("utf-8").split("\r\n")[1:]
-
-    headerDict = {}
-    for header in headers:
-        label, content = header.split(": ", 1)
-        if content.strip().isdigit():
-            content = int(content.strip())
-        headerDict[label] = content
-
-    if deepHeaderParse:
-        for label in ["Via", "From", "To", "CSeq"]:
-            _parseHeader(label, headerDict)
-
-    if(startLine.startswith("SIP/2.0")):
-        version, code, label = startLine.split(" ", 2)
-        messageDict = {"messageType": "Response", "statusCode": int(code), "statusLabel": label, "headers": headerDict, "messageBody": messageBody, "messageBodyLength": len(messageBodyEncoded)}
-
-
-    elif(startLine.endswith("SIP/2.0")):
-        method, requestURI, version = startLine.split(" ", 2)
-        messageDict = {"messageType": "Request", "method": method, "requestURI": requestURI}
-
-    else:
-        print("Malformed message")
-        exit()
-
-    messageDict["headers"] = headerDict
-    messageDict["messageBody"] = messageBody
-    messageDict["messageBodyLength"] = len(messageBodyEncoded)
-    
-    return messageDict
-
 
 class Dialog():
     UAS = 1
@@ -175,11 +99,11 @@ class Dialog():
 
 
 class Transaction:
-    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog):
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, dialog):
         self.transactionUser = transactionUser
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddress
-        self.state = state
+        self.state = None
         self.dialog = dialog
 
         self.fromTag = None
@@ -201,8 +125,8 @@ class Transaction:
 
 
 class ClientTransaction(Transaction):
-    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, state, dialog=None):
-        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, state, dialog)
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, dialog=None):
+        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, dialog)
         
         if(self.dialog):
             self.fromTag = dialog.getLocalTag()
@@ -233,6 +157,7 @@ class ClientTransaction(Transaction):
         return Sip._buildMessage(method, (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.branch, self.callID, self.sequence, method, self.fromTag, self.toTag, messageBody)
 
     async def invite(self):
+        self.state = "Calling"
         request = self.buildRequest("INVITE")
 
         transactionTimeout = 64 * T1
@@ -254,31 +179,31 @@ class ClientTransaction(Transaction):
 
         if response:
             # Await response suitable for dialog creation
-            while 'tag' not in response['headers']['To']:
+            while not response.toTag:
                 response = await self.recvQueue.get()
-            self.toTag = response['headers']['To']['tag']
+            self.toTag = response.toTag
 
             # Await non-Provisional response
-            while 100 <= response['statusCode'] <= 199:
+            while 100 <= response.statusCode <= 199:
                 if not self.dialog:
-                    self.dialog = Dialog(self.transactionUser, Dialog.EARLY, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'))
+                    self.dialog = Dialog(self.transactionUser, Dialog.EARLY, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'))
                 response = await self.recvQueue.get()
 
             # Successfully opened dialog
-            if 200 <= response["statusCode"] <= 299:
-                rtpPort, rtcpPort = _parseSDP(response['messageBody'])
+            if 200 <= response.statusCode <= 299:
+                rtpPort, rtcpPort = _parseSDP(response.body)
                 if self.dialog:
                     self.dialog.setState(Dialog.CONFIRMED)
                     self.dialog.setRtpPorts(rtpPort, rtcpPort)
                 else:
-                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response['headers']['To']['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response['headers']['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
+                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
 
                 # Ack in seperate transaction
-                newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), None, self.dialog)
+                newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
                 newTransaction.ack(autoClean=True)
 
             # Failed to open dialog
-            elif 300 <= response['statusCode'] <= 699:
+            elif 300 <= response.statusCode <= 699:
 
                 if self.dialog:
                     self.dialog.cleanup()
@@ -292,7 +217,7 @@ class ClientTransaction(Transaction):
                     async with asyncio.timeout(ANSWER_DUPLICATES_DURATION):
                         while(True):
                             response = await self.recvQueue.get()
-                            if 300 <= response['statusCode'] <= 699:
+                            if 300 <= response.statusCode <= 699:
                                 self.ack()
                             else:
                                 # TODO Maybe return a malformed response? *at the very least shouldn't cause program exit
@@ -314,7 +239,7 @@ class ClientTransaction(Transaction):
         # if not self.dialog:
         #     print("No dialog")
         #     exit()
-
+        self.state = "Trying"
         request = self.buildRequest(method)
 
         transactionTimeout = 64 * T1
@@ -322,7 +247,7 @@ class ClientTransaction(Transaction):
 
         async with asyncio.timeout(transactionTimeout):
             attempts = 0
-            while(not response or 100 <= response['statusCode'] <= 199):
+            while(not response or 100 <= response.statusCode <= 199):
                 self.transactionUser.send(request, (self.remoteIP, self.remotePort))
 
                 retransmitInterval = (pow(2, attempts) * T1)
@@ -332,7 +257,7 @@ class ClientTransaction(Transaction):
                     async with asyncio.timeout(retransmitInterval):
                         response = await self.recvQueue.get()
                         # TODO does this state update provide any value?
-                        if 100 <= response['statusCode'] <= 199:
+                        if 100 <= response.statusCode <= 199:
                             self.state = 'Proceeding'
                 except TimeoutError:
                     attempts += 1
@@ -340,7 +265,7 @@ class ClientTransaction(Transaction):
         # TODO handle possible transport error during request
 
         if response:
-            if 300 <= response['statusCode'] <= 699:
+            if 300 <= response.statusCode <= 699:
                 self.state = 'Completed'
                 # Buffer response retransmissions
                 try:
@@ -364,8 +289,8 @@ class ClientTransaction(Transaction):
 
 
 class ServerTransaction(Transaction):
-    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, state, dialog=None):
-        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, state, dialog)
+    def __init__(self, transactionUser, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, dialog=None):
+        super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, dialog)
 
         if(self.dialog):
             self.toTag = dialog.getRemoteTag()    
@@ -378,6 +303,11 @@ class ServerTransaction(Transaction):
         self.sequence = sequence
 
         self.transactionUser.addTransaction(self)
+
+    @classmethod
+    def fromMessage(cls, transactionUser, message, localAddress, dialog):
+        return cls(transactionUser, message.method, localAddress, message.viaAddress, message.callID, message.branch, message.fromTag, 
+                   message.seqNum, dialog)
 
     def buildResponse(self, status):
         messageBody = ""
@@ -419,7 +349,7 @@ class ServerTransaction(Transaction):
             #    that a transaction failure has occurred.
             async with asyncio.timeout(transactionTimeout):
                 attempts = 0
-                while(not request or request['method'] != 'ACK'):
+                while(not request or request.method != 'ACK'):
                     self.transactionUser.send(response, (self.remoteIP, self.remotePort))
 
                     retransmitInterval = (pow(2, attempts) * T1)
@@ -429,7 +359,7 @@ class ServerTransaction(Transaction):
                         async with asyncio.timeout(retransmitInterval):
                             request = await self.recvQueue.get()
                             # TODO does this state update provide any value?
-                            if request['method'] == 'ACK':
+                            if request.method == 'ACK':
                                 self.state = 'Confirmed'
                     except TimeoutError:
                         attempts += 1
@@ -437,7 +367,7 @@ class ServerTransaction(Transaction):
             # TODO handle possible transport error during request
 
             if request:
-                if 300 <= response['statusCode'] <= 699:
+                if 300 <= response.statusCode <= 699:
                     self.state = 'Completed'
                     # Buffer response retransmissions
                     try:
@@ -633,7 +563,7 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
 
     async def invite(self, address, port):
         print("Attempting to intitate a call with {}:{}".format(address, port))
-        transaction = ClientTransaction(self, "INVITE", (self.ip, self.port), (address, port), "Calling")
+        transaction = ClientTransaction(self, "INVITE", (self.ip, self.port), (address, port))
         dialog = await transaction.invite()
         return dialog
 
@@ -646,58 +576,59 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         _, remoteIP, remotePort = dialog.remoteTarget.split(':', 2)
         remotePort = int(remotePort)
 
-        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (remoteIP, remotePort), "Trying", dialog)
+        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (remoteIP, remotePort), dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
     async def handleMsg(self, data, addr):
-        message = _parseMessage(data, True)
-        print(json.dumps(message, indent=4))
+        print(data.decode('utf-8'))
+        message = SipMessage.fromStr(data.decode('utf-8'))
 
-        # Pass response to matching transaction if one exists
-        if(message["messageType"] == "Response"):
-            key = message["headers"]["Via"]["branch"] + message["headers"]["CSeq"]["method"]
-            if(key in self.transactions):
-                await self.transactions[key].getRecvQueue().put(message)
+        match message.getType():
+            # Pass response to matching transaction if one exists
+            case MessageType.RESPONSE:
+                key = message.branch + message.seqMethod
+                if(key in self.transactions):
+                    await self.transactions[key].getRecvQueue().put(message)
 
-        # TODO ensure request received is not a duplicate
-        elif(message["messageType"] == "Request"):
+            # TODO ensure request received is not a duplicate
+            case MessageType.REQUEST:
 
-            # Determine if SIP message belongs to existing dialog
-            dialog = None
-            if 'tag' in message['headers']['From'] and 'tag' in message['headers']['To']:
-                key = message['headers']['Call-ID'] + message['headers']['To']['tag'] + message['headers']['From']['tag']
-                if key in self.dialogs:
-                    dialog = self.dialogs[key]
-
-            # Determine if SIP message belongs to existing transaction
-            key = message['headers']['Via']['branch'] + message['headers']['Via']['IP'] + str(message['headers']['Via']['port'])
-            if (key in self.transactions and(message['method'] == self.transactions[key].getRequestMethod() or
-                                                    (message['method'] == 'ACK' and self.transactions[key].getRequestMethod == "INVITE"))):
-                await self.transactions[key].getRecvQueue().put(message)
-            elif message['method'] == 'ACK':
-                # Do not process orphaned ACK
-                pass
-            else:
-                remoteIP = message['headers']['Via']['IP']
-                remotePort = message['headers']['Via']['port']
-                callID = message['headers']['Call-ID']
-                branch = message['headers']['Via']['branch']
-                fromTag = message['headers']['From']['tag']
-                sequence = message['headers']['CSeq']['sequence']
-                transaction = ServerTransaction(self, message['method'], (self.ip, self.port), (remoteIP, remotePort), callID, branch, fromTag, sequence, None, dialog)
+                # Get matching dialog if one exists
+                dialog = None
+                if message.toTag:
+                    key = message.callID + message.toTag + message.fromTag
+                    if key in self.dialogs:
+                        dialog = self.dialogs[key]
                 
-                if message['method'] == 'INVITE':
+                # Determine if message belongs to existing transaction
+                viaIP, viaPort = message.viaAddress
+                key = message.branch + viaIP + str(viaPort)
+                # TODO fix this so I can remove the 2nd part of "or" statement (maybe change the transaction field to originatingRequestMethod?)
+                if (key in self.transactions and(message.method == self.transactions[key].getRequestMethod() or
+                                                        (message.method == 'ACK' and self.transactions[key].getRequestMethod == "INVITE"))):
+                    await self.transactions[key].getRecvQueue().put(message)
+                
+                # TODO handle re-invite
+                elif message.method == 'INVITE':
+                    transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog=None)
                     dialog = await transaction.invite()
+                    # TODO replace with event dispatch instead of callback
                     await self.inviteReceivedCallback(dialog)
-                else:
-                    await transaction.nonInvite(message['method'])
-                    if message['method'] == 'BYE':
-                        await self.byeReceivedCallback()
 
-        else:
-            print("Unsupported message type")
-            exit()
+                # Ignore orphaned acks
+                elif message.method == 'ACK':
+                    pass
+
+                elif dialog:
+                    transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog)
+                    await transaction.nonInvite(message.method)
+                    if message.method == 'BYE':
+                        await self.byeReceivedCallback()
+                        
+
+            case _:
+                raise Exception('Unsupported message type')
 
     @staticmethod
     async def run():
