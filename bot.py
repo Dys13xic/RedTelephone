@@ -53,7 +53,7 @@ if __name__ == "__main__":
         # client.messageCreate(contents, channelID)
 
     @voip.event
-    async def on_inbound_call_end():
+    async def on_inbound_call_ended():
         pass
         # TODO disconnect from voice
 
