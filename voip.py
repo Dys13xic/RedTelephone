@@ -1,6 +1,7 @@
 # 1st Party
 from sip import Sip
 from rtp import RtpEndpoint
+from events import EventHandler
 
 # Standard Library
 import asyncio
@@ -8,6 +9,19 @@ from os import urandom
 
 
 class Voip():
+
+    sipPort: int
+    rtpPort: int
+    rtcpPort: int
+    sipEndpoint: Sip
+    rtpEndpoint: RtpEndpoint
+    rtcpEndpoint: RtpEndpoint
+    # activeDialog: 
+    sessionStarted: asyncio.Event
+    eventHandler: EventHandler
+    sipEventHandler: EventHandler
+
+
     def __init__(self, sipPort, rtpPort, rtcpPort):
         self.sipPort = sipPort
         self.rtpPort = rtpPort
@@ -21,16 +35,30 @@ class Voip():
         self.rtpEndpoint = None
         self.rtcpEndpoint = None
         self.activeDialog = None
-        self._eventListeners = {}
         self.sessionStarted = asyncio.Event()
 
+        self.eventHandler = EventHandler()
+        self.sipEventHandler = EventHandler()
+        
+        # Register listeners
+        self.sipEventHandler.on('inboundCallAccepted', self.inboundCallAccepted)
+        self.sipEventHandler.on('inboundCallEnded', self.inboundCallEnded)
+
+    # Register voip events through function decorator
     def event(self, func):
-        self._eventListeners[func.__name__] = func
+        async def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+        
+        self.eventHandler.on(func.__name__.removeprefix('on_'), wrapper)
+        return wrapper
     
     async def run(self):
         loop = asyncio.get_event_loop()
         _, self.sipEndpoint = await loop.create_datagram_endpoint(
-        lambda: Sip(port=self.sipPort, inviteReceivedCallback=self.inboundCallAccepted, byeReceivedCallback=self.inboundCallEnded),
+        lambda: Sip(self.sipEventHandler.dispatch, self.sipPort),
         local_addr=("0.0.0.0", self.sipPort),
         )
 
@@ -91,16 +119,14 @@ class Voip():
         self.activeDialog = dialog
         self.sessionStarted.set()
 
-        # Call relevant event handler
-        if 'inbound_call_accepted' in self._eventListeners.keys():
-            await self._eventListeners['inbound_call_accepted']()
+        # Call relevant event handler        
+        await self.eventHandler.dispatch('inbound_call_accepted')
 
     async def inboundCallEnded(self):
         self.cleanup()
 
         # Call relevant event handler
-        if 'inbound_call_ended' in self._eventListeners.keys():
-            await self._eventListeners['inbound_call_ended']()
+        await self.eventHandler.dispatch('inbound_call_ended')
 
     def cleanup(self):
         self.rtpEndpoint.stop()

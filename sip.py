@@ -1,5 +1,6 @@
 # 1st Party Library
 from sipMessage import SipMessage, MessageType
+from events import EventHandler
 
 # Standard Library
 import asyncio
@@ -437,10 +438,14 @@ class SipEndpointProtocol:
 class Sip(SipEndpointProtocol):
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
-    def __init__(self, port=SIP_PORT, inviteReceivedCallback=None, byeReceivedCallback=None):
+    eventDispatcher: EventHandler.dispatch
+    port: int
+    transactions: dict
+    dialogs: dict
+
+    def __init__(self, eventDispatcher, port=SIP_PORT):
+        self.eventDispatcher = eventDispatcher
         self.port = port
-        self.inviteReceivedCallback = inviteReceivedCallback
-        self.byeReceivedCallback = byeReceivedCallback
         self.transactions = {}
         self.dialogs = {}
 
@@ -613,8 +618,7 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
                 elif message.method == 'INVITE':
                     transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog=None)
                     dialog = await transaction.invite()
-                    # TODO replace with event dispatch instead of callback
-                    await self.inviteReceivedCallback(dialog)
+                    await self.eventDispatcher('inboundCallAccepted', dialog)
 
                 # Ignore orphaned acks
                 elif message.method == 'ACK':
@@ -624,7 +628,8 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
                     transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog)
                     await transaction.nonInvite(message.method)
                     if message.method == 'BYE':
-                        await self.byeReceivedCallback()
+                        await self.eventDispatcher('inboundCallEnded')
+
                         
 
             case _:
