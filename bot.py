@@ -13,7 +13,7 @@ SIP_PORT = 5060
 
 HOME_GUILD_ID = '729825988443111424'
 HOME_VOICE_CHANNEL_ID = '729825988443111428'
-HOME_TEXT_CHANNEL_ID = '729825988443111428'
+HOME_TEXT_CHANNEL_ID = '733403603867271179'
 
 if __name__ == "__main__":
     # Retrieve the discord bot token
@@ -49,25 +49,14 @@ if __name__ == "__main__":
     async def on_inbound_call_accepted():
         await client.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
         client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
-        # TODO send @ message to notify users of call
-        # client.messageCreate(contents, channelID)
 
     @voip.event
     async def on_inbound_call_ended():
         pass
         # TODO disconnect from voice
+        # await bot.gateway.joinVoiceChannel(None, None)
 
     async def main():
         await asyncio.gather(client.run(), voip.run())
-
-    # Leaving here for ease of finding in other files
-    # @bot.voip.eventHandler
-    # async def inbound_call_accepted():
-    #     await bot.gateway.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
-
-    # @bot.voip.eventHandler
-    # async def inbound_call_ended():
-    #     await bot.gateway.joinVoiceChannel(None, None)
-    #     pass
 
     asyncio.run(main())

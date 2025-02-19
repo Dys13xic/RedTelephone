@@ -15,4 +15,4 @@ class Api():
 
     def simple_message_create(self, text, channelID):
         data = {'content': text}
-        r = self.session.post(self.endpoint + '/channels/{}/messages'.format(channelID), data, headers=self.getHeaders())
+        r = self.session.post(self.endpoint + '/channels/{}/messages'.format(channelID), data)
