@@ -1,5 +1,6 @@
 # 1st Party Library
-from sipMessage import SipMessage, MessageType
+from transport import Transport
+from sipMessage import SipMessageFactory, SipRequest, SipResponse
 from events import EventHandler
 
 # Standard Library
@@ -35,20 +36,14 @@ def _parseSDP(messageBody):
     return rtpPort, rtcpPort
 
 class Dialog():
-    UAS = 1
-    UAC = 2
-
-    EARLY = 1
-    CONFIRMED = 2
-
-    def __init__(self, transactionUser, state, role, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None, rtpPort = RTP_PORT, rtcpPort = RTP_PORT + 1):
+    def __init__(self, transactionUser, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None, rtpPort = RTP_PORT, rtcpPort = RTP_PORT + 1):
         self.transactionUser = transactionUser
-        self.state = state
-        self.role = role
+        # self.state = state
+        # self.role = role
         self.callID = callID
         self.localTag = localTag
         self.remoteTag = remoteTag
-        self.dialogID = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
+        self.id = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
         self.localSeq = localSeq
         self.remoteSeq = remoteSeq
         self.localURI = localURI
@@ -56,28 +51,11 @@ class Dialog():
         self.remoteTarget = remoteTarget
         #self.secure = secure
         #self.routeSet = routeSet
+        # TODO should rtpPort and rtcpPort be moved to a different session obj?
         self.rtpPort = rtpPort
         self.rtcpPort = rtcpPort
 
         self.transactionUser.addDialog(self)
-
-    def getLocalTag(self):
-        return self.localTag
-
-    def getRemoteTag(self):
-        return self.remoteTag
-    
-    def getRemoteURI(self):
-        return self.remoteURI
-    
-    def getCallID(self):
-        return self.callID
-
-    def getLocalSeq(self):
-        return self.localSeq
-    
-    def getID(self):
-        return self.dialogID
 
     # TODO Clean up the way this method operates
     def getRemoteIP(self):
@@ -86,13 +64,6 @@ class Dialog():
     
     def getRtpPorts(self):
         return self.rtpPort, self.rtcpPort
-    
-    def setState(self, state):
-        self.state = state
-    
-    def setRtpPorts(self, rtpPort, rtcpPort):
-        self.rtpPort = rtpPort
-        self.rtcpPort = rtcpPort
     
     def cleanup(self):
         self.transactionUser.removeDialog(self)
@@ -109,17 +80,23 @@ class Transaction:
 
         self.fromTag = None
         self.toTag = None
+        self.callID = None
         self.branch = None
         self.sequence = None
         self.requestMethod = requestMethod
 
         self.recvQueue = asyncio.Queue()
+
+    @staticmethod
+    def genTag():
+        return hex(int(random.getrandbits(32)))[2:]
     
-    def getRecvQueue(self):
-        return self.recvQueue
+    @staticmethod
+    def genCallID():
+        return hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
     
-    def getRequestMethod(self):
-        return self.requestMethod
+    def genBranch(self):
+        return Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
     
     def cleanup(self):
         self.transactionUser.removeTransaction(self)
@@ -130,23 +107,23 @@ class ClientTransaction(Transaction):
         super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, dialog)
         
         if(self.dialog):
-            self.fromTag = dialog.getLocalTag()
-            self.toTag = dialog.getRemoteTag()
-            self.callID = dialog.getCallID()
+            self.fromTag = dialog.localTag
+            self.toTag = dialog.remoteTag
+            self.callID = dialog.callID
 
             # TODO update dialog settings after request sent
             if self.requestMethod == "ACK":
-                self.sequence = dialog.getLocalSeq()
+                self.sequence = dialog.localSeq
             else:
-                self.sequence = dialog.getLocalSeq() + 1
+                self.sequence = dialog.locaSeq + 1
         
         else:
-            self.fromTag = hex(int(random.getrandbits(32)))[2:]
+            self.fromTag = Transaction.genTag()
             self.toTag = ""
-            self.callID = hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
+            self.callID = Transaction.genCallID()
             self.sequence = 1
 
-        self.branch = Sip.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
+        self.branch = self.genBranch()
         self.transactionUser.addTransaction(self)
 
     def buildRequest(self, method):
@@ -167,7 +144,7 @@ class ClientTransaction(Transaction):
         async with asyncio.timeout(transactionTimeout):
             attempts = 0
             while(not response):
-                self.transactionUser.send(request, (self.remoteIP, self.remotePort))
+                self.transactionUser.transport.send(request, (self.remoteIP, self.remotePort))
                 retransmitInterval = (pow(2, attempts) * T1)
 
                 try:
@@ -187,17 +164,17 @@ class ClientTransaction(Transaction):
             # Await non-Provisional response
             while 100 <= response.statusCode <= 199:
                 if not self.dialog:
-                    self.dialog = Dialog(self.transactionUser, Dialog.EARLY, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'))
+                    self.dialog = Dialog(self.transactionUser, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'))
                 response = await self.recvQueue.get()
 
             # Successfully opened dialog
             if 200 <= response.statusCode <= 299:
                 rtpPort, rtcpPort = _parseSDP(response.body)
                 if self.dialog:
-                    self.dialog.setState(Dialog.CONFIRMED)
-                    self.dialog.setRtpPorts(rtpPort, rtcpPort)
+                    self.dialog.rtpPort = rtpPort
+                    self.dialog.rtcpPort = rtcpPort
                 else:
-                    self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAC, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
+                    self.dialog = Dialog(self.transactionUser, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
 
                 # Ack in seperate transaction
                 newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
@@ -249,7 +226,7 @@ class ClientTransaction(Transaction):
         async with asyncio.timeout(transactionTimeout):
             attempts = 0
             while(not response or 100 <= response.statusCode <= 199):
-                self.transactionUser.send(request, (self.remoteIP, self.remotePort))
+                self.transactionUser.transport.send(request, (self.remoteIP, self.remotePort))
 
                 retransmitInterval = (pow(2, attempts) * T1)
                 retransmitInterval = min(T2, retransmitInterval)
@@ -280,7 +257,7 @@ class ClientTransaction(Transaction):
 
     def ack(self, autoClean=False):
         outgoingMsg = self.buildRequest("ACK")
-        self.transactionUser.send(outgoingMsg, (self.remoteIP, self.remotePort))
+        self.transactionUser.transport.send(outgoingMsg, (self.remoteIP, self.remotePort))
 
         if autoClean:
             self.cleanup()
@@ -294,7 +271,7 @@ class ServerTransaction(Transaction):
         super().__init__(transactionUser, requestMethod, localAddress, remoteAddress, dialog)
 
         if(self.dialog):
-            self.toTag = dialog.getRemoteTag()    
+            self.toTag = dialog.remoteTag()    
         else:
             self.toTag = hex(int(random.getrandbits(32)))[2:]
         
@@ -321,16 +298,16 @@ class ServerTransaction(Transaction):
     async def invite(self):
         self.state = 'Proceeding'
         response = self.buildResponse('100 Trying')
-        self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+        self.transactionUser.transport.send(response, (self.remoteIP, self.remotePort))
 
         response = self.buildResponse('180 Ringing')
-        self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+        self.transactionUser.transport.send(response, (self.remoteIP, self.remotePort))
 
         # TODO replace condition to implement behaviour for not accepting every call, i.e. 300 - 699 responses
         if True:
             # TODO, keep phone ringing until secret received?
             response = self.buildResponse('200 OK')
-            self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+            self.transactionUser.transport.send(response, (self.remoteIP, self.remotePort))
         else:
             response = self.buildResponse('486 Busy Here')
             self.state = 'Completed'
@@ -351,7 +328,7 @@ class ServerTransaction(Transaction):
             async with asyncio.timeout(transactionTimeout):
                 attempts = 0
                 while(not request or request.method != 'ACK'):
-                    self.transactionUser.send(response, (self.remoteIP, self.remotePort))
+                    self.transactionUser.transport.send(response, (self.remoteIP, self.remotePort))
 
                     retransmitInterval = (pow(2, attempts) * T1)
                     retransmitInterval = min(T2, retransmitInterval)
@@ -383,7 +360,7 @@ class ServerTransaction(Transaction):
         # TODO The remote target MUST be set to the URI from the Contact header field of the request.
         remoteTarget = None
 
-        self.dialog = Dialog(self.transactionUser, Dialog.CONFIRMED, Dialog.UAS, self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
+        self.dialog = Dialog(self.transactionUser, self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
         self.cleanup()
 
         return self.dialog
@@ -405,37 +382,7 @@ class ServerTransaction(Transaction):
         return self.branch + self.remoteIP + str(self.remotePort)
 
 
-class SipEndpointProtocol:
-    def __init__(self):
-        self._transport = None
-
-    def connection_made(self, transport):
-        self._transport = transport
-
-    def send(self, data, addr):
-        try:
-            print(data)
-            self._transport.sendto(data, addr)
-        except Exception as e:
-            print("Failed to Send: ", e)
-            exit(1)
-
-    def datagram_received(self, data, addr):
-        raise NotImplementedError
-
-    def error_received(e):
-        print("Error Received: ", e)
-        exit(1)
-
-    def connection_lost(e):
-        print("Connection Lost: ", e)
-        exit(1)
-
-    def stop(self):
-        self._transport.close()
-
-
-class Sip(SipEndpointProtocol):
+class Sip():
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
 
     eventDispatcher: EventHandler.dispatch
@@ -445,28 +392,10 @@ class Sip(SipEndpointProtocol):
 
     def __init__(self, eventDispatcher, port=SIP_PORT):
         self.eventDispatcher = eventDispatcher
+        self.transport = None
         self.port = port
         self.transactions = {}
         self.dialogs = {}
-
-        # Retrieve local IP
-        try:
-            tempSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            tempSock.connect(("8.8.8.8", 80))
-            self.ip = tempSock.getsockname()[0]
-            tempSock.close()
-        except:
-            "Failed to determine local IP address"
-            exit()
-
-    def datagram_received(self, data, addr):
-        loop = asyncio.get_event_loop()
-        loop.create_task(self.datagram_received_async(data, addr))
-
-    async def datagram_received_async(self, data, addr):
-        # TODO check message length against contentLength
-        # Truncating long messages and discarding (with a 400 error) short messages
-        await self.handleMsg(data, addr)
 
     def addTransaction(self, transaction):
         self.transactions[transaction.getID()] = transaction
@@ -475,7 +404,7 @@ class Sip(SipEndpointProtocol):
         del self.transactions[transaction.getID()]
 
     def addDialog(self, dialog):
-        self.dialogs[dialog.getID()] = dialog
+        self.dialogs[dialog.id] = dialog
     
     def removeDialog(self, dialog):
         del self.dialogs[dialog.getID()]
@@ -501,13 +430,6 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
 
     @staticmethod
     def _buildMessage(type, localAddress, remoteAddress, branch, callID, sequence, sequenceRequestType, fromTag, toTag="", messageBody=""):
-
-        # TODO
-        #  When the server transport receives a request over any transport, it
-        #    MUST examine the value of the "sent-by" parameter in the top Via
-        #    header field value.  If the host portion of the "sent-by" parameter
-        #    contains a domain name, or if it contains an IP address that differs
-        #    from the packet source address, the server MUST add a "received"
 
         (localIP, localPort) = localAddress
         (remoteIP, remotePort) = remoteAddress
@@ -568,7 +490,7 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
 
     async def invite(self, address, port):
         print("Attempting to intitate a call with {}:{}".format(address, port))
-        transaction = ClientTransaction(self, "INVITE", (self.ip, self.port), (address, port))
+        transaction = ClientTransaction(self, "INVITE", (self.transport.ip, self.port), (address, port))
         dialog = await transaction.invite()
         return dialog
 
@@ -581,68 +503,60 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
         _, remoteIP, remotePort = dialog.remoteTarget.split(':', 2)
         remotePort = int(remotePort)
 
-        transaction = ClientTransaction(self, "BYE", (self.ip, self.port), (remoteIP, remotePort), dialog)
+        transaction = ClientTransaction(self, "BYE", (self.transport.ip, self.port), (remoteIP, remotePort), dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
-    async def handleMsg(self, data, addr):
-        print(data.decode('utf-8'))
-        message = SipMessage.fromStr(data.decode('utf-8'))
+    async def handleMsg(self, msg, addr):
 
-        match message.getType():
+        if isinstance(msg, SipResponse):
             # Pass response to matching transaction if one exists
-            case MessageType.RESPONSE:
-                key = message.branch + message.seqMethod
-                if(key in self.transactions):
-                    await self.transactions[key].getRecvQueue().put(message)
+            key = msg.branch + msg.seqMethod
+            if(key in self.transactions):
+                await self.transactions[key].recvQueue.put(msg)
 
-            # TODO ensure request received is not a duplicate
-            case MessageType.REQUEST:
+        # TODO ensure request received is not a duplicate
+        elif isinstance(msg, SipRequest):
+            # Get matching dialog if one exists
+            dialog = None
+            if msg.toTag:
+                key = msg.callID + msg.toTag + msg.fromTag
+                if key in self.dialogs:
+                    dialog = self.dialogs[key]
+            
+            # Determine if message belongs to existing transaction
+            viaIP, viaPort = msg.viaAddress
+            key = msg.branch + viaIP + str(viaPort)
+            # TODO fix this so I can remove the 2nd part of "or" statement (maybe change the transaction field to originatingRequestMethod?)
+            if (key in self.transactions and(msg.method == self.transactions[key].requestMethod or
+                                                    (msg.method == 'ACK' and self.transactions[key].requestMethod == "INVITE"))):
+                await self.transactions[key].recvQueue.put(msg)
+            
+            # TODO handle re-invite
+            elif msg.method == 'INVITE':
+                transaction = ServerTransaction.fromMessage(self, msg, (self.transport.ip, self.port), dialog=None)
+                dialog = await transaction.invite()
+                await self.eventDispatcher('inboundCallAccepted', dialog)
 
-                # Get matching dialog if one exists
-                dialog = None
-                if message.toTag:
-                    key = message.callID + message.toTag + message.fromTag
-                    if key in self.dialogs:
-                        dialog = self.dialogs[key]
-                
-                # Determine if message belongs to existing transaction
-                viaIP, viaPort = message.viaAddress
-                key = message.branch + viaIP + str(viaPort)
-                # TODO fix this so I can remove the 2nd part of "or" statement (maybe change the transaction field to originatingRequestMethod?)
-                if (key in self.transactions and(message.method == self.transactions[key].getRequestMethod() or
-                                                        (message.method == 'ACK' and self.transactions[key].getRequestMethod == "INVITE"))):
-                    await self.transactions[key].getRecvQueue().put(message)
-                
-                # TODO handle re-invite
-                elif message.method == 'INVITE':
-                    transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog=None)
-                    dialog = await transaction.invite()
-                    await self.eventDispatcher('inboundCallAccepted', dialog)
+            # Ignore orphaned acks
+            elif msg.method == 'ACK':
+                pass
 
-                # Ignore orphaned acks
-                elif message.method == 'ACK':
-                    pass
+            elif dialog:
+                transaction = ServerTransaction.fromMessage(self, msg, (self.transport.ip, self.port), dialog)
+                await transaction.nonInvite(msg.method)
+                if msg.method == 'BYE':
+                    await self.eventDispatcher('inboundCallEnded')
 
-                elif dialog:
-                    transaction = ServerTransaction.fromMessage(self, message, (self.ip, self.port), dialog)
-                    await transaction.nonInvite(message.method)
-                    if message.method == 'BYE':
-                        await self.eventDispatcher('inboundCallEnded')
+        else:
+            raise Exception('Unsupported message type')
 
-                        
-
-            case _:
-                raise Exception('Unsupported message type')
-
-    @staticmethod
-    async def run():
+    async def run(self):
         loop = asyncio.get_event_loop()
-        _, endpoint = await loop.create_datagram_endpoint(
-        lambda: Sip(SIP_PORT),
-        local_addr=("0.0.0.0", SIP_PORT),
+        _, self.transport = await loop.create_datagram_endpoint(
+        lambda: Transport(self.port, handleMsgCallback=self.handleMsg),
+        local_addr=("0.0.0.0", self.port),
         )
-        return endpoint
 
 async def main():
     loop = asyncio.get_event_loop()

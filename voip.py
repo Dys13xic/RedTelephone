@@ -13,7 +13,7 @@ class Voip():
     sipPort: int
     rtpPort: int
     rtcpPort: int
-    sipEndpoint: Sip
+    sip: Sip
     rtpEndpoint: RtpEndpoint
     rtcpEndpoint: RtpEndpoint
     # activeDialog: 
@@ -31,14 +31,14 @@ class Voip():
         else:
             self.rtcpPort = rtpPort + 1
 
-        self.sipEndpoint = None
+        self.eventHandler = EventHandler()
+        self.sipEventHandler = EventHandler()
+
+        self.sipEndpoint = Sip(self.sipEventHandler.dispatch, sipPort)
         self.rtpEndpoint = None
         self.rtcpEndpoint = None
         self.activeDialog = None
         self.sessionStarted = asyncio.Event()
-
-        self.eventHandler = EventHandler()
-        self.sipEventHandler = EventHandler()
         
         # Register listeners
         self.sipEventHandler.on('inboundCallAccepted', self.inboundCallAccepted)
@@ -56,11 +56,7 @@ class Voip():
         return wrapper
     
     async def run(self):
-        loop = asyncio.get_event_loop()
-        _, self.sipEndpoint = await loop.create_datagram_endpoint(
-        lambda: Sip(self.sipEventHandler.dispatch, self.sipPort),
-        local_addr=("0.0.0.0", self.sipPort),
-        )
+        await self.sipEndpoint.run()
 
     async def call(self, remoteIP):
         dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)
@@ -102,9 +98,9 @@ class Voip():
 
             loop = asyncio.get_event_loop()
             _, endpoint = await loop.create_datagram_endpoint(
-            lambda: RtpEndpoint(ssrc, encrypted=False),
-            local_addr=("0.0.0.0", self.rtpPort),
-            remote_addr=(remoteIP, remoteRtpPort)
+                lambda: RtpEndpoint(ssrc, encrypted=False),
+                local_addr=("0.0.0.0", self.rtpPort),
+                remote_addr=(remoteIP, remoteRtpPort)
             )
 
             _, ctrlEndpoint = await loop.create_datagram_endpoint(

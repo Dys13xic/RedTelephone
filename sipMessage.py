@@ -2,23 +2,44 @@
 from enum import Enum
 import re
 
+SIP_DEFAULT_PORT = 5060
 SIP_VERSION = 'SIP/2.0'
 TRANSPORT_PROTOCOL = 'UDP'
 
-class MessageType(Enum):
-    REQUEST = "Request"
-    RESPONSE = "Response"
+class StatusCodes(Enum):
+    TRYING = 100
+    RINGING = 180
+    OK = 200
+    MULTIPLE_CHOICES = 300
+    MOVED_PERMANENTLY = 301
+    MOVED_TEMPORARILY = 302
+    USE_PROXY = 305
+    BAD_REQUEST = 400
+    REQUEST_TIMEOUT = 408
+    BUSY_HERE = 486
+    REQUEST_TERMINATED = 487
 
-# class SipMessageFactory():
+    @staticmethod
+    def isProvisional(code):
+        return 100 <= code <= 199
 
-#     @staticmethod
-#     def createFromStr(message):
-#         if SipMessage.isRequest(message):
-#             return SipRequest.fromStr(message)
-#         elif SipMessage.isResponse(message):
-#             return SipResponse.fromStr(message)
-#         else:
-#             raise Exception('Invalid message received')
+    @staticmethod
+    def isSuccessful(code):
+        return 200 <= code <= 299
+    
+    @staticmethod
+    def isFinal(code):
+        return 200 <= code <= 699
+
+class SipMessageFactory():
+    @staticmethod
+    def createFromStr(message):
+        if SipMessage.strIsRequest(message):
+            return SipRequest.fromStr(message)
+        elif SipMessage.strIsResponse(message):
+            return SipResponse.fromStr(message)
+        else:
+            raise Exception('Invalid message received')
 
 class SipMessage():
     viaAddress: bool
@@ -31,12 +52,7 @@ class SipMessage():
     body: str
     additionalHeaders: dict
 
-    def __init__(self, method, statusCode, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders={}):
-        if not bool(method) ^ bool(statusCode):
-            raise Exception('Message must include either a response statusCode or request method.')
-        
-        self.method = method
-        self.statusCode = statusCode
+    def __init__(self, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders={}):
         self.viaAddress = viaAddress
         self.branch = branch
         self.fromTag = fromTag
@@ -51,15 +67,6 @@ class SipMessage():
     def fromStr(cls, message):
         head, body = message.split("\r\n\r\n")
         startLine, *headers = head.split('\r\n')
-
-        method, statusCode = None, None
-        if SipMessage.strIsRequest(startLine):
-            method, _ = startLine.split(' ', 1)
-        elif SipMessage.strIsResponse(startLine):
-            _, statusCode, _ = message.split(' ', 2)
-            statusCode = int(statusCode)
-        else:
-            raise Exception('Message is neither a valid request nor response.')
         
         additionalHeaders = {}
         for header in headers:
@@ -84,15 +91,7 @@ class SipMessage():
                 case _:
                     additionalHeaders[label] = content
 
-        return cls(method, statusCode, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
-
-    def getType(self):
-        if self.method:
-            return MessageType.REQUEST
-        elif self.statusCode:
-            return MessageType.RESPONSE
-        else:
-            return None
+        return cls(viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
 
     @staticmethod
     def _extractParameters(header, label):
@@ -103,6 +102,7 @@ class SipMessage():
                 return value
         return None
     
+    # TODO Add comments to regex using re.VERBOSE
     @staticmethod
     def strIsRequest(message):
         return bool(re.match('^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS)\\s+sip:[^\\s]+?\\s+SIP/2\\.0', message))
@@ -111,33 +111,47 @@ class SipMessage():
     def strIsResponse(message):
         return bool(re.match('^SIP/2\\.0\\s+\\d{3}\\s+.*', message))
 
-# class SipRequest(SipMessage):
-#     method: str
-#     maxForwards: int
+class SipRequest(SipMessage):
+    method: str
+    maxForwards: int
 
-#     # def __init__(self, method, body, branch, fromTag, toTag, callID, seqNum, seqMethod, localAddr, remoteAddr, maxForwards=70):
-#     def __init__(self, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders, method, maxForwards=70):
-#         super().__init__(viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
-#         self.method = method
-#         self.maxForwards = maxForwards
+    def __init__(self, method, targetAddress, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders, maxForwards=70):
+        super().__init__(viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
+        self.method = method
+        self.targetAddress = targetAddress
+        self.maxForwards = maxForwards
 
-#     @classmethod
-#     def fromStr(cls, message):
-#         request = super().fromStr(message)
-#         request.method, _ = message.split(' ', 1)
-#         request.maxForwards = request.additionalHeaders.get('Max-Forwards', default=70)
-#         return request
+    @classmethod
+    def fromStr(cls, message):
+        temp = SipMessage.fromStr(message)
+        method, requestURI, _ = message.split(' ', 2)
+        # TODO find a better way to check if port is included (or explore adding comments to regex using re.VERBOSE)
+        if re.match("^sip:(?:[a-zA-Z0-9_.!~*'()-]+)@(?:[a-zA-Z0-9.-]+):\\d", requestURI):
+            _, targetIP, targetPort = requestURI.split(':')
+        else:
+            _, targetIP = requestURI.split(':', 1)
+            targetPort = SIP_DEFAULT_PORT
 
-# class SipResponse(SipMessage):
-#     statusCode: int
+        targetAddress = (targetIP, int(targetPort))
+        maxForwards = temp.additionalHeaders.get('Max-Forwards', 70)
 
-#     # def __init__(self, statusCode, body, branch, fromTag, toTag, callID, seqNum, seqMethod, localAddr, remoteAddr, maxForwards=70):
-#     def __init__(self, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders, statusCode):
-#         super().__init__(viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
-#         self.statusCode = statusCode
+        return cls(method, targetAddress, temp.viaAddress, temp.branch, temp.fromTag, temp.toTag, temp.callID, temp.seqNum, temp.seqMethod, 
+                   temp.body, temp.additionalHeaders, maxForwards)
 
-#     @classmethod
-#     def fromStr(cls, message):
-#         response = super().fromStr(message)
-#         _, statusCode, _ = message.split(' ', 2)
-#         response.statusCode = int(statusCode)
+class SipResponse(SipMessage):
+    statusCode: int
+
+    def __init__(self, statusCode, viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders):
+        super().__init__(viaAddress, branch, fromTag, toTag, callID, seqNum, seqMethod, body, additionalHeaders)
+        self.statusCode = statusCode
+
+    @classmethod
+    def fromStr(cls, message):
+        temp = SipMessage.fromStr(message)
+        _, statusCode, _ = message.split(' ', 2)
+        statusCode = int(statusCode)
+        # TODO replace with enum
+        # statusCode = StatusCodes(statusCode)
+        
+        return cls(statusCode, temp.viaAddress, temp.branch, temp.fromTag, temp.toTag, temp.callID, temp.seqNum, temp.seqMethod, 
+                   temp.body, temp.additionalHeaders)
