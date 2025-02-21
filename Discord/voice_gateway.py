@@ -1,6 +1,6 @@
 # 1st Party
-from gateway_connection import GatewayConnection, GatewayMessage
-from gateway import Gateway
+from .gateway_connection import GatewayConnection, GatewayMessage
+from .gateway import Gateway
 from events import EventHandler
 from rtp import RtpEndpoint
 

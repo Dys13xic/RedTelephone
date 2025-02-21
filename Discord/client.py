@@ -1,8 +1,8 @@
 # 1st Party
 from events import EventHandler
-from gateway import Gateway
-from voice_gateway import VoiceGateway
-from api import Api
+from .gateway import Gateway
+from .voice_gateway import VoiceGateway
+from .api import Api
 
 # Standard Library
 import asyncio

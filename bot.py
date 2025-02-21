@@ -1,5 +1,5 @@
 # 1st Party
-from client import Client
+from Discord.client import Client
 from rtp import RtpEndpoint
 from voip import Voip 
 
