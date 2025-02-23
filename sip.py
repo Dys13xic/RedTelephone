@@ -1,6 +1,7 @@
 # 1st Party Library
-from transport import Transport
 from sipMessage import SipMessageFactory, SipRequest, SipResponse
+from transport import Transport
+from dialog import Dialog
 from events import EventHandler
 
 # Standard Library
@@ -34,40 +35,6 @@ def _parseSDP(messageBody):
             rtcpPort = int(firstArg[len('a=rtcp:'):])
 
     return rtpPort, rtcpPort
-
-class Dialog():
-    def __init__(self, transactionUser, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None, rtpPort = RTP_PORT, rtcpPort = RTP_PORT + 1):
-        self.transactionUser = transactionUser
-        # self.state = state
-        # self.role = role
-        self.callID = callID
-        self.localTag = localTag
-        self.remoteTag = remoteTag
-        self.id = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
-        self.localSeq = localSeq
-        self.remoteSeq = remoteSeq
-        self.localURI = localURI
-        self.remoteURI = remoteURI
-        self.remoteTarget = remoteTarget
-        #self.secure = secure
-        #self.routeSet = routeSet
-        # TODO should rtpPort and rtcpPort be moved to a different session obj?
-        self.rtpPort = rtpPort
-        self.rtcpPort = rtcpPort
-
-        self.transactionUser.addDialog(self)
-
-    # TODO Clean up the way this method operates
-    def getRemoteIP(self):
-        _, remoteIP, _ = self.remoteURI.split(':', 2)
-        return remoteIP
-    
-    def getRtpPorts(self):
-        return self.rtpPort, self.rtcpPort
-    
-    def cleanup(self):
-        self.transactionUser.removeDialog(self)
-        # TODO is this going to mess up transactions that belong to this dialog and are still running?
 
 
 class Transaction:
@@ -154,27 +121,16 @@ class ClientTransaction(Transaction):
                     attempts += 1
 
         # TODO handle possible transport error during request
-
         if response:
-            # Await response suitable for dialog creation
-            while not response.toTag:
-                response = await self.recvQueue.get()
-            self.toTag = response.toTag
 
             # Await non-Provisional response
             while 100 <= response.statusCode <= 199:
-                if not self.dialog:
-                    self.dialog = Dialog(self.transactionUser, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'))
                 response = await self.recvQueue.get()
 
             # Successfully opened dialog
             if 200 <= response.statusCode <= 299:
                 rtpPort, rtcpPort = _parseSDP(response.body)
-                if self.dialog:
-                    self.dialog.rtpPort = rtpPort
-                    self.dialog.rtcpPort = rtcpPort
-                else:
-                    self.dialog = Dialog(self.transactionUser, self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
+                self.dialog = Dialog(self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
 
                 # Ack in seperate transaction
                 newTransaction = ClientTransaction(self.transactionUser, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
@@ -182,11 +138,6 @@ class ClientTransaction(Transaction):
 
             # Failed to open dialog
             elif 300 <= response.statusCode <= 699:
-
-                if self.dialog:
-                    self.dialog.cleanup()
-                    self.dialog = None
-
                 self.state = "Completed"
                 self.ack()
 
@@ -210,6 +161,7 @@ class ClientTransaction(Transaction):
                 exit()
 
         self.cleanup()
+        # TODO fix if no response, self.dialog undefined
         return self.dialog
 
     async def nonInvite(self, method):
@@ -254,6 +206,8 @@ class ClientTransaction(Transaction):
                     pass
         
         self.cleanup()
+        if method == 'BYE':
+            self.dialog.terminate()
 
     def ack(self, autoClean=False):
         outgoingMsg = self.buildRequest("ACK")
@@ -360,7 +314,7 @@ class ServerTransaction(Transaction):
         # TODO The remote target MUST be set to the URI from the Contact header field of the request.
         remoteTarget = None
 
-        self.dialog = Dialog(self.transactionUser, self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
+        self.dialog = Dialog(self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
         self.cleanup()
 
         return self.dialog
@@ -370,6 +324,7 @@ class ServerTransaction(Transaction):
 
         if method == 'BYE':
             response = self.buildResponse('200 OK')
+            self.dialog.terminate()
         else:
             # TODO implement additional requests
             print('Unsupported Request')
@@ -388,26 +343,18 @@ class Sip():
     eventDispatcher: EventHandler.dispatch
     port: int
     transactions: dict
-    dialogs: dict
 
     def __init__(self, eventDispatcher, port=SIP_PORT):
         self.eventDispatcher = eventDispatcher
         self.transport = None
         self.port = port
         self.transactions = {}
-        self.dialogs = {}
 
     def addTransaction(self, transaction):
         self.transactions[transaction.getID()] = transaction
 
     def removeTransaction(self, transaction):
         del self.transactions[transaction.getID()]
-
-    def addDialog(self, dialog):
-        self.dialogs[dialog.id] = dialog
-    
-    def removeDialog(self, dialog):
-        del self.dialogs[dialog.getID()]
 
     @staticmethod
     def _buildSDP(localAddress, port=RTP_PORT):
@@ -521,8 +468,7 @@ a=ptime:20\r\n""".format(sessionID, sessionVersion, localAddress, localAddress, 
             dialog = None
             if msg.toTag:
                 key = msg.callID + msg.toTag + msg.fromTag
-                if key in self.dialogs:
-                    dialog = self.dialogs[key]
+                dialog = Dialog.getDialog(key)
             
             # Determine if message belongs to existing transaction
             viaIP, viaPort = msg.viaAddress
