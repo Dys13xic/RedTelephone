@@ -64,6 +64,11 @@ class Voip():
 
         if dialog:
             remoteRtpPort, remoteRtcpPort = dialog.getRtpPorts()
+            if not remoteRtpPort:
+                remoteRtpPort = self.rtpPort
+            if not remoteRtcpPort:
+                remoteRtcpPort = self.rtcpPort
+
             ssrc = Voip.genSSRC()
 
             loop = asyncio.get_event_loop()
@@ -94,6 +99,12 @@ class Voip():
         if dialog:
             remoteIP = dialog.getRemoteIP()
             remoteRtpPort, remoteRtcpPort = dialog.getRtpPorts()
+
+            if not remoteRtpPort:
+                remoteRtpPort = self.rtpPort
+            if not remoteRtcpPort:
+                remoteRtcpPort = self.rtcpPort
+
             ssrc = Voip.genSSRC()
 
             loop = asyncio.get_event_loop()
