@@ -1,5 +1,5 @@
 # 1st Party
-from sip import Sip
+from Sip.sip import Sip
 from rtp import RtpEndpoint
 from events import EventHandler
 

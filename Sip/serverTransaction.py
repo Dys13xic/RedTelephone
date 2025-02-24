@@ -1,6 +1,6 @@
-from sipMessage import SipMessage
-from transaction import Transaction
-from dialog import Dialog
+from .sipMessage import SipMessage
+from .transaction import Transaction
+from .dialog import Dialog
 
 import asyncio
 

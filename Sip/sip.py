@@ -1,10 +1,10 @@
 # 1st Party Library
-from sipMessage import SipRequest, SipResponse
-from transport import Transport
-from transaction import Transaction
-from clientTransaction import ClientTransaction
-from serverTransaction import ServerTransaction
-from dialog import Dialog
+from .sipMessage import SipRequest, SipResponse
+from .transport import Transport
+from .transaction import Transaction
+from .clientTransaction import ClientTransaction
+from .serverTransaction import ServerTransaction
+from .dialog import Dialog
 from events import EventHandler
 
 # Standard Library

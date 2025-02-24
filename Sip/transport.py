@@ -4,7 +4,7 @@ import asyncio
 from typing import Callable
 
 # 1st Party
-from sipMessage import SipMessageFactory
+from .sipMessage import SipMessageFactory
 
 class Transport():
     ip: str
