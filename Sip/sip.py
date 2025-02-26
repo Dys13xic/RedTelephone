@@ -11,7 +11,6 @@ from events import EventHandler
 import asyncio
 
 SIP_PORT = 5060
-RTP_PORT = 5004
 
 class Sip():
     eventDispatcher: EventHandler.dispatch
@@ -30,8 +29,9 @@ class Sip():
         return dialog
 
     # TODO implement
-    # def cancel(self, address, port):
-    #     print("Call cancelled")
+    def cancel(self, address, port):
+        print("Call cancelled")
+        raise NotImplementedError
 
     async def bye(self, dialog):
         print("Ending call")
@@ -80,7 +80,7 @@ class Sip():
 
             elif dialog:
                 transaction = ServerTransaction.fromMessage(self.transport.send, msg, (self.transport.ip, self.port), dialog)
-                await transaction.nonInvite(msg.method)
+                asyncio.create_task(transaction.nonInvite(msg.method))
                 if msg.method == 'BYE':
                     await self.eventDispatcher('inboundCallEnded')
 

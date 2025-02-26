@@ -7,11 +7,6 @@ import time
 import random
 import hashlib
 
-T1 = 0.5
-T2 = 4
-T4 = 5
-ANSWER_DUPLICATES_DURATION = 32
-
 class ClientTransaction(Transaction):
     def __init__(self, sendToTransport, requestMethod, localAddress, remoteAddress, dialog=None):
         super().__init__(sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
@@ -50,14 +45,14 @@ class ClientTransaction(Transaction):
         self.state = "Calling"
         request = self.buildRequest("INVITE")
 
-        transactionTimeout = 64 * T1
+        transactionTimeout = 64 * Transaction.T1
         response = None
 
         async with asyncio.timeout(transactionTimeout):
             attempts = 0
             while(not response):
                 self.sendToTransport(request, (self.remoteIP, self.remotePort))
-                retransmitInterval = (pow(2, attempts) * T1)
+                retransmitInterval = (pow(2, attempts) * Transaction.T1)
 
                 try:
                     async with asyncio.timeout(retransmitInterval):
@@ -88,7 +83,7 @@ class ClientTransaction(Transaction):
 
                 # Answer duplicate final responses for 32 seconds before terminating transaction
                 try:
-                    async with asyncio.timeout(ANSWER_DUPLICATES_DURATION):
+                    async with asyncio.timeout(Transaction.ANSWER_DUPLICATES_DURATION):
                         while(True):
                             response = await self.recvQueue.get()
                             if 300 <= response.statusCode <= 699:
@@ -117,7 +112,7 @@ class ClientTransaction(Transaction):
         self.state = "Trying"
         request = self.buildRequest(method)
 
-        transactionTimeout = 64 * T1
+        transactionTimeout = 64 * Transaction.T1
         response = None
 
         async with asyncio.timeout(transactionTimeout):
@@ -125,8 +120,8 @@ class ClientTransaction(Transaction):
             while(not response or 100 <= response.statusCode <= 199):
                 self.sendToTransport(request, (self.remoteIP, self.remotePort))
 
-                retransmitInterval = (pow(2, attempts) * T1)
-                retransmitInterval = min(T2, retransmitInterval)
+                retransmitInterval = (pow(2, attempts) * Transaction.T1)
+                retransmitInterval = min(Transaction.T2, retransmitInterval)
 
                 try:
                     async with asyncio.timeout(retransmitInterval):
@@ -144,7 +139,7 @@ class ClientTransaction(Transaction):
                 self.state = 'Completed'
                 # Buffer response retransmissions
                 try:
-                    async with asyncio.timeout(T4):
+                    async with asyncio.timeout(Transaction.T4):
                         while(True):
                             response = await self.recvQueue.get()
                 except TimeoutError:

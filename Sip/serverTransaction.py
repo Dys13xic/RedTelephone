@@ -51,7 +51,7 @@ class ServerTransaction(Transaction):
             response = self.buildResponse('486 Busy Here')
             self.state = 'Completed'
 
-            transactionTimeout = 64 * T1
+            transactionTimeout = 64 * Transaction.T1
             request = None
 
             # TODO
@@ -69,8 +69,8 @@ class ServerTransaction(Transaction):
                 while(not request or request.method != 'ACK'):
                     self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
-                    retransmitInterval = (pow(2, attempts) * T1)
-                    retransmitInterval = min(T2, retransmitInterval)
+                    retransmitInterval = (pow(2, attempts) * Transaction.T1)
+                    retransmitInterval = min(Transaction.T2, retransmitInterval)
 
                     try:
                         async with asyncio.timeout(retransmitInterval):
@@ -88,7 +88,7 @@ class ServerTransaction(Transaction):
                     self.state = 'Completed'
                     # Buffer response retransmissions
                     try:
-                        async with asyncio.timeout(T4):
+                        async with asyncio.timeout(Transaction.T4):
                             while(True):
                                 response = await self.recvQueue.get()
                     except TimeoutError:
@@ -105,11 +105,24 @@ class ServerTransaction(Transaction):
         return self.dialog
         
     async def nonInvite(self, method):
-        self.state = 'Proceeding'
+        self.state = 'Trying'
 
         if method == 'BYE':
             response = self.buildResponse('200 OK')
+            self.sendToTransport(response, (self.remoteIP, self.remotePort))
+            self.state = 'Completed'
+
+            retransmissionTimeout = 64 * Transaction.T1
+            try:
+                async with asyncio.timeout(retransmissionTimeout):
+                    request = await self.recvQueue.get()
+                    # TODO verify request is duplicate
+                    self.sendToTransport(response, (self.remoteIP, self.remotePort))
+            except TimeoutError:
+                pass
+
             self.dialog.terminate()
+
         else:
             # TODO implement additional requests
             print('Unsupported Request')

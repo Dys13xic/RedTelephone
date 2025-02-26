@@ -4,6 +4,10 @@ import random
 class Transaction:
     # Constants
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
+    T1 = 0.5
+    T2 = 4
+    T4 = 5
+    ANSWER_DUPLICATES_DURATION = 32
 
     # Static Vars
     _transactions: dict = {}
