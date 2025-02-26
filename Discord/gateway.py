@@ -168,14 +168,8 @@ class Gateway(GatewayConnection):
             return False
     
     async def signalVoiceChannelJoin(self, guildID, channelID, selfMute=False, selfDeaf=False):
-        # if not self._handshakeComplete:
-        #     raise Exception('Gateway handshake not complete.')
-
         data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
-        # try:
         await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
-        # except Exception as e:
-        #     print(e)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ class GatewayMessage:
 
 class GatewayConnection:
     token: str
-    lastSequence: int = None
+    lastSequence: int
     _endpoint: str
     _params: str
     _heartbeatInterval: float
@@ -87,6 +87,10 @@ class GatewayConnection:
                 await self.processMsg(msgObj)
             except TypeError as e:
                 print(e)
+            except asyncio.CancelledError:
+                print('Receive task cancelled.')
+                # TODO for some reason this is being called by the regular Gateway as well as voice Gateway on leaveVoice
+                # break
 
     async def _heartbeatLoop(self):
         while True:

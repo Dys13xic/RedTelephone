@@ -70,9 +70,14 @@ class Client:
 
     # Gateway API Methods
     # --------------------
-    async def joinVoiceChannel(self, guildID, channelID):
+    async def joinVoice(self, guildID, channelID):
         await self.gateway.signalVoiceChannelJoin(guildID, channelID)
         self.voiceGateway = VoiceGateway(self.gateway, guildID, channelID, self.voiceEventHandler.dispatch)
+
+    async def leaveVoice(self):
+        if self.voiceGateway:
+            await self.voiceGateway.disconnect()
+            self.voiceGateway = None
 
     # REST API Wrapper Methods
     # -----------------

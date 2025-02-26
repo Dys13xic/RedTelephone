@@ -84,6 +84,12 @@ class VoiceGateway(GatewayConnection):
     async def connect(self):
         await self._start()
 
+    async def disconnect(self):
+        self._stop()
+        self.RTPEndpoint.stop()
+        self.RTPEndpoint = None
+        await self.gateway.signalVoiceChannelJoin(self.serverID, None)
+
     async def processMsg(self, msgObj):
         # Update sequence number
         if(msgObj.s):

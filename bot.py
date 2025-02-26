@@ -33,8 +33,8 @@ if __name__ == "__main__":
         # TODO is it more appropriate to keep the stuff users would see to client?
         voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
         if msgData['guild_id'] == voiceServerID and voiceChannelID:
-            await client.joinVoiceChannel(voiceServerID, voiceChannelID)
-            await voip.call('10.13.0.6')
+            await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), 
+                                 await voip.call('10.13.0.6'))
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
 
@@ -47,16 +47,21 @@ if __name__ == "__main__":
 
     @voip.event
     async def on_inbound_call_accepted():
-        await client.joinVoiceChannel(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
+        await client.joinVoice(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
         client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
 
     @voip.event
     async def on_inbound_call_ended():
-        pass
-        # TODO disconnect from voice
-        # await bot.gateway.joinVoiceChannel(None, None)
+        await client.leaveVoice()
+        # TODO cleanup the RTP assets?
 
     async def main():
         await asyncio.gather(client.run(), voip.run())
 
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print('Process interrupted')
+    finally:
+        print('Bot successfully shutdown')
+    
