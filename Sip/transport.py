@@ -39,14 +39,8 @@ class Transport():
             exit(1)
 
     def datagram_received(self, data, addr):
-        loop = asyncio.get_event_loop()
-        loop.create_task(self.datagram_received_async(data, addr))
-
-    async def datagram_received_async(self, data, addr):
-        # TODO check message length against contentLength
-        # Truncating long messages and discarding (with a 400 error) short messages
         msg = SipMessageFactory.createFromStr(data.decode('utf-8'))
-        await self.handleMsgCallback(msg, addr)
+        asyncio.create_task(self.handleMsgCallback(msg, addr))
 
     def error_received(e):
         print("Error Received: ", e)
