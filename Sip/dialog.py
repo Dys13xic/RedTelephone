@@ -10,7 +10,7 @@ class Dialog():
         self.callID = callID
         self.localTag = localTag
         self.remoteTag = remoteTag
-        self.id = "{};localTag={};remoteTag={}".format(self.callID, self.localTag, self.remoteTag)
+        self.id = self.callID + self.localTag + self.remoteTag
         self.localSeq = localSeq
         self.remoteSeq = remoteSeq
         self.localURI = localURI
