@@ -6,6 +6,10 @@ from voip import Voip
 # Standard Library
 import sys
 import asyncio
+import logging
+import os
+
+LOGGING = True
 
 RTP_PORT = 5004
 RTCP_PORT = 5005
@@ -18,11 +22,10 @@ HOME_TEXT_CHANNEL_ID = '733403603867271179'
 if __name__ == "__main__":
     # Retrieve the discord bot token
     try:
-        tokenFile = open("token.txt", 'r')
-        token = tokenFile.readline()
-    except:
-        print("ERROR: Unable to open/read token.txt")
-        sys.exit(1)
+        with open('token.txt', 'r', encoding='utf-8') as f:
+            token = f.readline()
+    except Exception:
+        sys.exit()
 
     client = Client(token)
     voip = Voip(SIP_PORT, RTP_PORT, RTCP_PORT)
@@ -48,7 +51,8 @@ if __name__ == "__main__":
     @voip.event
     async def on_inbound_call_accepted():
         await client.joinVoice(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
-        client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
+        # TODO uncomment after testing finished
+        # client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
 
     @voip.event
     async def on_inbound_call_ended():
@@ -56,10 +60,13 @@ if __name__ == "__main__":
         # TODO cleanup the RTP assets?
 
     async def main():
+        if LOGGING:
+            logging.basicConfig(format='%(message)s', level=logging.DEBUG)
+            os.environ['WEBSOCKETS_MAX_LOG_SIZE'] = '1000'
         await asyncio.gather(client.run(), voip.run())
 
     try:
-        asyncio.run(main())
+        asyncio.run(main(), debug=LOGGING)
     except KeyboardInterrupt:
         print('Process interrupted')
     finally:

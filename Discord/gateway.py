@@ -87,7 +87,7 @@ class Gateway(GatewayConnection):
     def _clean(self):
         super()._clean()
         self._sessionID = None
-        self.setEndpoint(DEFAULT_ENDPOINT)
+        self.endpoint = DEFAULT_ENDPOINT
         self.setParams('&encoding=json')
 
     async def processMsg(self, msgObj):
@@ -167,21 +167,6 @@ class Gateway(GatewayConnection):
         else:
             return False
     
-    async def signalVoiceChannelJoin(self, guildID, channelID, selfMute=False, selfDeaf=False):
+    async def updateVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
         data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
         await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
-
-
-if __name__ == "__main__":
-    # Retrieve the discord bot token
-    try:
-        tokenFile = open("token.txt", 'r')
-        token = tokenFile.readline()
-    except:
-        print("ERROR: Unable to open/read token.txt")
-        
-    gw = Gateway(token)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(gw.connect())
-    loop.close()

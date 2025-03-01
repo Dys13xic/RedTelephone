@@ -58,9 +58,12 @@ class Client:
 
     async def on_voice_server_update(self, token, endpoint):
         # TODO handle when endpoint == NULL
-        self.voiceGateway.setToken(token)
-        self.voiceGateway.setEndpoint(endpoint)
-        await self.voiceGateway.connect()
+        self.voiceGateway.token = token
+        self.voiceGateway.endpoint = endpoint
+        try:
+            await self.voiceGateway.connect()
+        except asyncio.CancelledError:
+            print('Voice gateway cancelled.')
 
     # Voice Gateway Events
     # ---------------------
@@ -71,7 +74,7 @@ class Client:
     # Gateway API Methods
     # --------------------
     async def joinVoice(self, guildID, channelID):
-        await self.gateway.signalVoiceChannelJoin(guildID, channelID)
+        await self.gateway.updateVoiceChannel(guildID, channelID)
         self.voiceGateway = VoiceGateway(self.gateway, guildID, channelID, self.voiceEventHandler.dispatch)
 
     async def leaveVoice(self):

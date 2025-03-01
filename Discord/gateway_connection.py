@@ -10,7 +10,6 @@ import logging
 import os
 
 API_VERSION = 10
-LOGGING = True
 
 
 @dataclass
@@ -34,26 +33,22 @@ class GatewayMessage:
 class GatewayConnection:
     token: str
     lastSequence: int
-    _endpoint: str
+    endpoint: str
     _params: str
     _heartbeatInterval: float
     _sendQueue: asyncio.Queue
     _tasks: asyncio.Future
+    _connected: asyncio.Event
 
     def __init__(self, token, endpoint, params=''):
         self.token = token
         self.lastSequence = None
-        self._endpoint = endpoint
+        self.endpoint = endpoint
         self._params = params
         self._heartbeatInterval = 1
         self._sendQueue = asyncio.Queue()
         self._tasks = None
-
-    def setToken(self, token):
-        self.token = token
-
-    def setEndpoint(self, endpoint):
-        self._endpoint = endpoint
+        self._connected = asyncio.Event()
 
     def setParams(self, params):
         self._params = params
@@ -63,34 +58,32 @@ class GatewayConnection:
 
     async def connect(self):
         raise NotImplementedError
+    
+    async def disconnect(self):
+        raise NotImplementedError
 
     async def _start(self):
-        if LOGGING:
-            logging.basicConfig(format='%(message)s', level=logging.DEBUG)
-            os.environ['WEBSOCKETS_MAX_LOG_SIZE'] = '1000'
-
-        async with websockets.connect(self._endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
+        async with websockets.connect(self.endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
             self._websock = websock
             self._tasks = asyncio.gather(self._recvLoop(websock), self._heartbeatLoop())
+            self._connected.set()
             await self._tasks
 
     def _stop(self, clean=True):
+        self._connected.clear()
         self._tasks.cancel()      
         if clean:
             self._clean()
 
     async def _recvLoop(self, websock):
         while True:
+            msg = await websock.recv()
             try:
-                msg = await websock.recv()
                 msgObj = GatewayMessage.objectify(msg)
-                await self.processMsg(msgObj)
             except TypeError as e:
                 print(e)
-            except asyncio.CancelledError:
-                print('Receive task cancelled.')
-                # TODO for some reason this is being called by the regular Gateway as well as voice Gateway on leaveVoice
-                # break
+            else:
+                await self.processMsg(msgObj)
 
     async def _heartbeatLoop(self):
         while True:
@@ -104,7 +97,7 @@ class GatewayConnection:
     # TODO is clean the correct term seeing as we're not overwriting the token?
     def _clean(self):
         self.lastSequence = None
-        # self._endpoint = ''
+        # self.endpoint = ''
         self._params = ''
         self._heartbeatInterval = 1
         self._sendQueue = asyncio.Queue()
