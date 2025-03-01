@@ -93,7 +93,7 @@ class RtpEndpointProtocol:
         print("Error Received: ", e)
 
     def connection_lost(self, e):
-        print("Connection Lost: ", e)
+        print("RTP Connection Lost: ", e)
 
     def stop(self):
         self._transport.close()

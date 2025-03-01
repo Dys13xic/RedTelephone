@@ -47,7 +47,7 @@ class Transport():
         exit(1)
 
     def connection_lost(e):
-        print("Connection Lost: ", e)
+        print("SIP Connection Lost: ", e)
         exit(1)
 
     def stop(self):
