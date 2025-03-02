@@ -85,13 +85,11 @@ class VoiceGateway(GatewayConnection):
         await self._start()
 
     async def disconnect(self):
-        await self._connected.wait()
-        self._stop()
+        await super().disconnect()
         if self.RTPEndpoint:
             self.RTPEndpoint.stop()
             self.RTPEndpoint = None
         await self.gateway.updateVoiceChannel(self.serverID, None)
-        super().disconnect()
 
     async def processMsg(self, msgObj):
         # Update sequence number
@@ -133,12 +131,11 @@ class VoiceGateway(GatewayConnection):
                 await self.send(selectMsg)
 
             case OpCodes.SESSION_DESCRIPTION.value:
-                if self.RTPEndpoint:
-                    self.RTPEndpoint.setSecretKey(msgObj.d['secret_key'])
+                self.RTPEndpoint.setSecretKey(msgObj.d['secret_key'])
 
-                    data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
-                    speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
-                    await self.send(speakingMsg)
+                data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
+                speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
+                await self.send(speakingMsg)
 
             case OpCodes.SPEAKING.value:
                 pass
