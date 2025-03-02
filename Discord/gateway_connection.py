@@ -60,7 +60,9 @@ class GatewayConnection:
         raise NotImplementedError
     
     async def disconnect(self):
-        raise NotImplementedError
+        # TODO Add a timeout to waiting on _connected (in order to prevent queueing a disconnect to be executed much later.)
+        await self._connected.wait()
+        self._stop()
 
     async def _start(self):
         async with websockets.connect(self.endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
