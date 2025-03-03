@@ -3,6 +3,7 @@ from Discord.client import Client
 from rtp import RtpEndpoint
 from voip import Voip
 from doNotDisturb import DoNotDisturb, Weekdays
+from callLog import CallLog
 
 # Standard Library
 import sys
@@ -21,6 +22,8 @@ HOME_GUILD_ID = '729825988443111424'
 HOME_VOICE_CHANNEL_ID = '729825988443111428'
 HOME_TEXT_CHANNEL_ID = '733403603867271179'
 
+HOURLY_CALL_LIMIT = 5
+
 UTC_OFFSET_HOURS = 5
 UTC_OFFSET_FACTOR = -1
 
@@ -34,7 +37,8 @@ if __name__ == "__main__":
 
     # TODO load configuration settings
     currentTimeZone = timezone(UTC_OFFSET_FACTOR * timedelta(hours=UTC_OFFSET_HOURS))
-    doNotDisturb = DoNotDisturb(timeFrames=[(0, 9), (23, 24)])
+    doNotDisturb = DoNotDisturb(timeFrames=[(0, 9), (23, 24)], tz=currentTimeZone)
+    callLog = CallLog(HOURLY_CALL_LIMIT, tz=currentTimeZone)
 
     client = Client(token)
     voip = Voip(SIP_PORT, RTP_PORT, RTCP_PORT)
@@ -47,14 +51,14 @@ if __name__ == "__main__":
         voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
         if msgData['guild_id'] == voiceServerID and voiceChannelID:
             
-            currentDateTime = datetime.now(tz=currentTimeZone)
-            if doNotDisturb.violated(currentDateTime):
-                client.createMessage('`Line is not monitored at this hour.`', msgData['channel_id'])
+            if doNotDisturb.violated():
+                client.createMessage('`The Line is not monitored at this hour.`', msgData['channel_id'])
                 
-            # elif callLimitExceeded(currentDateTime):
-            #     client.createMessage('`You have surpassed the hourly call limit. You may try again at: `', msgData['channel_id'])
+            elif callLog.callLimitExceeded():
+                client.createMessage(f'`The hourly call limit was exceeded, you may try again at: {callLog.nextAllowedTime()}`', msgData['channel_id'])
             else:
-                await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call('10.13.0.6'))                
+                await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call('10.13.0.6'))
+                callLog.record()
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
 

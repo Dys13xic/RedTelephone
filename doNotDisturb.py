@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -12,22 +12,27 @@ class Weekdays(Enum):
     SUN = 6
 
 class DoNotDisturb():
-    def __init__(self,  timeFrames=[], weekdayOverride={}):
+    timeFrame: tuple
+    weekdayOverride: dict
+
+    def __init__(self,  timeFrames=[], weekdayOverride={}, tz=timezone.utc):
         self.timeFrames = timeFrames
         self.weekdayOverride = weekdayOverride
+        self.tz = tz
 
-    def violated(self, dateTimeObj):
-        weekday = Weekdays(dateTimeObj.weekday())
+    def violated(self):
+        currentDateTime = datetime.now(tz=self.tz)
+        weekday = Weekdays(currentDateTime.weekday())
 
         if weekday in self.weekdayOverride:
             for timeFrame in self.weekdayOverride.get(weekday, []):
                 startHr, endHr = timeFrame
-                if startHr <= dateTimeObj.hour < endHr:
+                if startHr <= currentDateTime.hour < endHr:
                     return True
         else:
             for timeFrame in self.timeFrames:
                 startHr, endHr = timeFrame
-                if startHr <= dateTimeObj.hour < endHr:
+                if startHr <= currentDateTime.hour < endHr:
                     return True
             
         return False
