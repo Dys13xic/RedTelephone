@@ -52,7 +52,7 @@ if __name__ == "__main__":
         if msgData['guild_id'] == voiceServerID and voiceChannelID:
             
             if doNotDisturb.violated():
-                client.createMessage('`The Line is not monitored at this hour.`', msgData['channel_id'])
+                client.createMessage('`The line is not monitored at this hour.`', msgData['channel_id'])
                 
             elif callLog.callLimitExceeded():
                 client.createMessage(f'`The hourly call limit was exceeded, you may try again at: {callLog.nextAllowedTime()}`', msgData['channel_id'])
