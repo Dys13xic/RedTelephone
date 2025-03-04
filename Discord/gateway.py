@@ -41,6 +41,13 @@ class CloseCodes():
     INVALID_INTENT = 4013
     DISALLOWED_INTENT = 4014
 
+    @staticmethod
+    def restartRequired(closeCode):
+        if closeCode in [CloseCodes.UNKNOWN_ERROR, CloseCodes.DECODE_ERROR, CloseCodes.NOT_AUTHENTICATED, CloseCodes.ALREADY_AUTHENTICATED, 
+                         CloseCodes.INVALID_SEQ, CloseCodes.RATE_LIMITED, CloseCodes.SESSION_TIMED_OUT]:
+            return False
+        else:
+            return True
 
 class Gateway(GatewayConnection):
     _userID: int
@@ -69,20 +76,13 @@ class Gateway(GatewayConnection):
 
     async def connect(self):
         # TODO add exponential backoff?
-        await self._start()
-        # while True:
-        #     try:
-        #         await self._start()
-        #     # TODO add error logging?
-        #     except websockets.exceptions.ConnectionClosedOK:
-        #         self._stop(clean=True)
-        #     except websockets.exceptions.ConnectionClosedError as e:
-        #         clean = not self.isResumable(e.code)
-        #         self._stop(clean)
-        #     except asyncio.exceptions.CancelledError as e:
-        #         print('Task cancelled')
-        #     except Exception as e:
-        #         print(e)
+        while True:
+            try:
+                await self._start()
+            except websockets.exceptions.ConnectionClosedOK:
+                self._stop(clean=True)
+            except websockets.exceptions.ConnectionClosedError as e:
+                self._stop(clean=CloseCodes.restartRequired(e.code))
 
     def _clean(self):
         super()._clean()
@@ -159,13 +159,6 @@ class Gateway(GatewayConnection):
     
     def genHeartBeat(self):
         return GatewayMessage(OpCodes.HEARTBEAT, self.lastSequence)
-    
-    def isResumable(self, closeCode):
-        if closeCode in [CloseCodes.UNKNOWN_ERROR, CloseCodes.DECODE_ERROR, CloseCodes.NOT_AUTHENTICATED, CloseCodes.ALREADY_AUTHENTICATED, 
-                         CloseCodes.INVALID_SEQ, CloseCodes.RATE_LIMITED, CloseCodes.SESSION_TIMED_OUT]:
-            return True
-        else:
-            return False
     
     async def updateVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
         data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
