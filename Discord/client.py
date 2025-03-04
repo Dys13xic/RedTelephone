@@ -34,7 +34,10 @@ class Client:
         await self.start()
 
     async def start(self):
-        await self.gateway.connect()
+        try:
+            await self.gateway.connect()
+        except asyncio.CancelledError:
+            print('Gateway cancelled.')
 
     # Register client events through function decorator
     def event(self, func):
