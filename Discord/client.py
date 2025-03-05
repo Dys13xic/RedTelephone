@@ -88,4 +88,4 @@ class Client:
     # REST API Wrapper Methods
     # -----------------
     def createMessage(self, text, channelID):
-        self.api.simple_message_create(text, channelID)
+        asyncio.create_task(self.api.simple_message_create(text, channelID))

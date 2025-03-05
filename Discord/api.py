@@ -1,18 +1,27 @@
-import requests
+import asyncio
+from aiohttp import ClientSession
 
 API_URL = 'https://discord.com/api'
 API_VERSION = 10
 
-# TODO replace with self-written async class
 class Api():
     _token: str
+    endpoint: str
+    headers: dict
+    session: ClientSession
 
     def __init__(self, token):
         self._token = token
-        self.endpoint = '{}/v{}'.format(API_URL, str(API_VERSION))
-        self.session = requests.Session()
-        self.session.headers = {'Authorization': 'Bot {}'.format(self._token)}
+        self.endpoint = f'{API_URL}/v{str(API_VERSION)}/'
+        # TODO establish proper versioning constants
+        self.headers = {'User-Agent': 'DiscordBot (RedTelephone, 1.0)', 'Authorization': f'Bot {self._token}'}
+        self.session = None
 
-    def simple_message_create(self, text, channelID):
-        data = {'content': text}
-        r = self.session.post(self.endpoint + '/channels/{}/messages'.format(channelID), data)
+    # TODO add error handling
+    async def simple_message_create(self, text, channelID):
+        if not self.session:
+            self.session = ClientSession(base_url = self.endpoint, headers=self.headers)
+
+        resp = await self.session.post(f'channels/{channelID}/messages', data={'content': text})
+
+    # TODO add cleanup method to close session
