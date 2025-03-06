@@ -5,8 +5,8 @@ from .dialog import Dialog
 import asyncio
 
 class ServerTransaction(Transaction):
-    def __init__(self, sendToTransport, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, dialog=None):
-        super().__init__(sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
+    def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, callID, branch, fromTag, sequence, dialog=None):
+        super().__init__(notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
 
         if(self.dialog):
             self.toTag = dialog.remoteTag
@@ -21,8 +21,8 @@ class ServerTransaction(Transaction):
         Transaction._transactions[self.id] = self
 
     @classmethod
-    def fromMessage(cls, sendToTransport, message, localAddress, dialog):
-        return cls(sendToTransport, message.method, localAddress, message.viaAddress, message.callID, message.branch, message.fromTag, 
+    def fromMessage(cls, notifyTU, sendToTransport, message, localAddress, dialog):
+        return cls(notifyTU, sendToTransport, message.method, localAddress, message.viaAddress, message.callID, message.branch, message.fromTag, 
                    message.seqNum, dialog)
 
     def buildResponse(self, status):

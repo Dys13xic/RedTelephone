@@ -8,8 +8,8 @@ import random
 import hashlib
 
 class ClientTransaction(Transaction):
-    def __init__(self, sendToTransport, requestMethod, localAddress, remoteAddress, dialog=None):
-        super().__init__(sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
+    def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog=None):
+        super().__init__(notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
         
         if(self.dialog):
             self.fromTag = dialog.localTag

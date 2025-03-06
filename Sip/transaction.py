@@ -12,7 +12,8 @@ class Transaction:
     # Static Vars
     _transactions: dict = {}
 
-    def __init__(self, sendToTransport, requestMethod, localAddress, remoteAddress, dialog):
+    def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog):
+        self.notifyTU = notifyTU
         self.sendToTransport = sendToTransport
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddress

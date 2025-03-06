@@ -1,5 +1,6 @@
 # 1st Party
 from Sip.sip import Sip
+from Sip.sipMessage import SipRequest, SipResponse
 from rtp import RtpEndpoint
 from events import EventHandler
 
@@ -20,6 +21,7 @@ class Voip():
     sessionStarted: asyncio.Event
     eventHandler: EventHandler
     sipEventHandler: EventHandler
+    recvQueue: asyncio.Queue
 
 
     def __init__(self, sipPort, rtpPort, rtcpPort):
@@ -34,7 +36,8 @@ class Voip():
         self.eventHandler = EventHandler()
         self.sipEventHandler = EventHandler()
 
-        self.sipEndpoint = Sip(self.sipEventHandler.dispatch, sipPort)
+        self.recvQueue = asyncio.Queue()
+        self.sipEndpoint = Sip(self.recvQueue, self.sipEventHandler.dispatch, sipPort)
         self.rtpEndpoint = None
         self.rtcpEndpoint = None
         self.activeDialog = None
@@ -57,6 +60,36 @@ class Voip():
     
     async def run(self):
         await self.sipEndpoint.run()
+
+    async def manageSip(self):
+        while True:
+            msg = await self.recvQueue.get()
+            
+            if isinstance(msg, SipRequest):
+                match msg.method:
+                    case 'INVITE':
+                        pass
+                    case 'BYE':
+                        pass
+                    case 'CANCEL':
+                        pass
+                    case _:
+                        print('Unsupported request method')
+
+            elif isinstance(msg, SipResponse):
+                match msg.method:
+                    case 'INVITE':
+                        pass
+                    case 'BYE':
+                        pass
+                    case 'CANCEL':
+                        pass
+                    case _:
+                        print('Unsupported response method')
+
+            else:
+                print('Unsupported message type')
+
 
     async def call(self, remoteIP):
         dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)

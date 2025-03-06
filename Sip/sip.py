@@ -17,14 +17,18 @@ class Sip():
     transport: Transport
     port: int
 
-    def __init__(self, eventDispatcher, port=SIP_PORT):
+    def __init__(self, transactionUserQueue, eventDispatcher, port=SIP_PORT):
+        self.transactionUserQueue = transactionUserQueue
         self.eventDispatcher = eventDispatcher
         self.transport = None
         self.port = port
 
+    async def notifyTU(self, msg):
+        await self.transactionUserQueue.put(msg)
+
     async def invite(self, address, port):
         print("Attempting to intitate a call with {}:{}".format(address, port))
-        transaction = ClientTransaction(self.transport.send, "INVITE", (self.transport.ip, self.port), (address, port))
+        transaction = ClientTransaction(self.notifyTU, self.transport.send, "INVITE", (self.transport.ip, self.port), (address, port))
         dialog = await transaction.invite()
         return dialog
 
@@ -38,7 +42,7 @@ class Sip():
         _, remoteIP, remotePort = dialog.remoteTarget.split(':', 2)
         remotePort = int(remotePort)
 
-        transaction = ClientTransaction(self.transport.send, "BYE", (self.transport.ip, self.port), (remoteIP, remotePort), dialog)
+        transaction = ClientTransaction(self.notifyTU, self.transport.send, "BYE", (self.transport.ip, self.port), (remoteIP, remotePort), dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
@@ -70,7 +74,7 @@ class Sip():
             
             # TODO handle re-invite
             elif msg.method == 'INVITE':
-                transaction = ServerTransaction.fromMessage(self.transport.send, msg, (self.transport.ip, self.port), dialog=None)
+                transaction = ServerTransaction.fromMessage(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog=None)
                 dialog = await transaction.invite()
                 await self.eventDispatcher('inboundCallAccepted', dialog)
 
@@ -79,7 +83,7 @@ class Sip():
                 pass
 
             elif dialog:
-                transaction = ServerTransaction.fromMessage(self.transport.send, msg, (self.transport.ip, self.port), dialog)
+                transaction = ServerTransaction.fromMessage(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog)
                 asyncio.create_task(transaction.nonInvite(msg.method))
                 if msg.method == 'BYE':
                     await self.eventDispatcher('inboundCallEnded')
