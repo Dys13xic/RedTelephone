@@ -30,8 +30,9 @@ class Transport():
     def connection_made(self, transport):
         self._transport = transport
 
-    def send(self, data, addr):
+    def send(self, msg, addr):
         try:
+            data = str(msg).encode('utf-8')
             print(data)
             self._transport.sendto(data, addr)
         except Exception as e:
