@@ -65,7 +65,7 @@ class VoiceGateway(GatewayConnection):
     token: str
     endpoint: str
     ssrc: int
-    RTPEndpoint: RtpEndpoint
+    rtpEndpoint: RtpEndpoint
 
     def __init__(self, gateway, serverID, channelID, eventDispatcher):
         self.gateway = gateway
@@ -75,20 +75,26 @@ class VoiceGateway(GatewayConnection):
         self.token = None
         self.endpoint = None
         self.ssrc = None
-        self.RTPEndpoint = None
+        self.rtpEndpoint = None
         super().__init__(self.token, self.endpoint)
-
-    def getRTPEndpoint(self):
-        return self.RTPEndpoint
 
     async def connect(self):
         await self._start()
+        # attempts = 2
+        # while attempts:
+        #     try:
+        #         await self._start()
+        #     except websockets.exceptions.ConnectionClosedOK:
+        #         self.disconnect()
+        #         break
+        #     except websockets.exceptions.ConnectionClosedError as e:
+        #         self._stop(clean=CloseCodes.restartRequired(e.code))
 
     async def disconnect(self):
         await super().disconnect()
-        if self.RTPEndpoint:
-            self.RTPEndpoint.stop()
-            self.RTPEndpoint = None
+        if self.rtpEndpoint:
+            self.rtpEndpoint.stop()
+            self.rtpEndpoint = None
         await self.gateway.updateVoiceChannel(self.serverID, None)
 
     async def processMsg(self, msgObj):
@@ -122,7 +128,7 @@ class VoiceGateway(GatewayConnection):
                     local_addr=("0.0.0.0", DISCORD_RTP_PORT),
                     remote_addr=(remoteIP, remotePort)
                 )
-                self.RTPEndpoint = endpoint
+                self.rtpEndpoint = endpoint
             
                 # TODO Establish UDP socket for RTP and peform IP discovery
                 # IOT replace local address info
@@ -131,7 +137,7 @@ class VoiceGateway(GatewayConnection):
                 await self.send(selectMsg)
 
             case OpCodes.SESSION_DESCRIPTION.value:
-                self.RTPEndpoint.setSecretKey(msgObj.d['secret_key'])
+                self.rtpEndpoint.setSecretKey(msgObj.d['secret_key'])
 
                 data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
                 speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
