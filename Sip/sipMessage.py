@@ -251,9 +251,9 @@ class SipResponse(SipMessage):
     #         toParamsCopy['tag'] = toTag
     #     return cls(responseCode, request.method, request.viaAddress, request.viaParams, request.fromURI, request.fromParams, request.toURI, toParamsCopy, request.callID, request.seqNum, body, additionalHeaders)    
     
-    # def __str__(self):
-    #     statusLine = f'{SIP_VERSION} {self.statusCode.code} {self.statusCode.reasonPhrase}\r\n'
-    #     return statusLine + super().__str__()
+    def __str__(self):
+        statusLine = f'{SIP_VERSION} {self.statusCode.code} {self.statusCode.reasonPhrase}\r\n'
+        return statusLine + super().__str__()
     
-    # def getTransactionID(self):
-    #     return self.viaParams['branch'] + self.method
+    def getTransactionID(self):
+        return self.viaParams['branch'] + self.method
