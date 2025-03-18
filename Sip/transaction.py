@@ -15,22 +15,22 @@ class Transaction:
     def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog):
         self.notifyTU = notifyTU
         self.sendToTransport = sendToTransport
+        self.requestMethod = requestMethod
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddress
-        self.state = None
         self.dialog = dialog
+        self.recvQueue = asyncio.Queue()
         self.id = None
+        self.state = None
 
         self.fromTag = None
         self.toTag = None
         self.callID = None
         self.branch = None
         self.sequence = None
-        self.requestMethod = requestMethod
-
-        self.recvQueue = asyncio.Queue()
-    
+            
     def terminate(self):
+        self.state = "Terminated"
         del self._transactions[self.id]
 
     def _genTag(self):
