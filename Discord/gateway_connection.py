@@ -19,13 +19,13 @@ class GatewayMessage:
     s: int = None
     t: str = None
 
-    def stringify(self):
+    def __str__(self):
         classDict = asdict(self)
         jsonString = json.dumps(classDict)
         return jsonString
 
     @staticmethod
-    def objectify(string):
+    def fromStr(string):
         jsonDict = json.loads(string)
         classObj = GatewayMessage(**jsonDict)
         return classObj
@@ -81,7 +81,7 @@ class GatewayConnection:
         while True:
             msg = await websock.recv()
             try:
-                msgObj = GatewayMessage.objectify(msg)
+                msgObj = GatewayMessage.fromStr(msg)
             except TypeError as e:
                 print(e)
             else:
@@ -94,7 +94,7 @@ class GatewayConnection:
             await asyncio.sleep(self._heartbeatInterval)
 
     async def send(self, msgObj):
-        await self._websock.send(msgObj.stringify())
+        await self._websock.send(str(msgObj))
 
     # TODO is clean the correct term seeing as we're not overwriting the token?
     def _clean(self):
