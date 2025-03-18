@@ -65,9 +65,8 @@ if __name__ == "__main__":
     @client.event
     async def on_voice_secret_received():
         # Wait for active VOIP session before proxying traffic
-        await voip.getSessionStarted().wait()
-        RtpEndpoint.proxy(client.voiceGateway.getRTPEndpoint(), voip.getRTPEndpoint(), yCtrl=voip.getRTCPEndpoint())
-
+        await voip.sessionStarted.wait()
+        RtpEndpoint.proxy(client.voiceGateway.rtpEndpoint, voip.rtpEndpoint, yCtrl=voip.rtcpEndpoint)
 
     @voip.event
     async def on_inbound_call_accepted():
