@@ -50,44 +50,29 @@ class Sip():
         await byeTask
 
     async def handleMsg(self, msg, addr):
-
-        if isinstance(msg, SipResponse):
-            # Pass response to matching transaction if one exists
-            key = msg.getTransactionID()
-            transaction = Transaction.getTransaction(key)
-            if transaction:
-                await transaction.recvQueue.put(msg)
+        # Pass message to matching transaction if one exists
+        key = msg.getTransactionID()
+        transaction = Transaction.getTransaction(key)
+        if transaction:
+            await transaction.recvQueue.put(msg)
 
         elif isinstance(msg, SipRequest):
+            # Ignore orphaned acks
+            if msg.method == 'ACK':
+                pass
+        
             # Get matching dialog if one exists
             dialog = None
             if 'tag' in msg.toParams:
                 key = msg.callID + msg.toParams['tag'] + msg.fromParams['tag']
                 dialog = Dialog.getDialog(key)
-            
-            # Determine if message belongs to existing transaction
-            key = msg.getTransactionID()
-            transaction = Transaction.getTransaction(key)
-            # TODO fix this so I can remove the 2nd part of "or" statement (maybe change the transaction field to originatingRequestMethod?)
-            if transaction and (msg.method == transaction.requestMethod or 
-                                                                        (msg.method == 'ACK' and transaction.requestMethod == "INVITE")):
-                await transaction.recvQueue.put(msg)
-            
-            # TODO handle re-invite
-            elif msg.method == 'INVITE':
-                transaction = ServerTransaction(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog=None)
-                dialog = await transaction.invite()
 
-            # Ignore orphaned acks
-            elif msg.method == 'ACK':
-                pass
-
-            elif dialog:
-                transaction = ServerTransaction(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog)
+            transaction = ServerTransaction(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog)
+            if msg.method == 'INVITE':
+                # TODO handle re-invite
+                asyncio.create_task(transaction.invite())
+            else:
                 asyncio.create_task(transaction.nonInvite())
-
-        else:
-            raise Exception('Unsupported message type')
 
     async def run(self):
         loop = asyncio.get_event_loop()
