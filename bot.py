@@ -36,6 +36,7 @@ if __name__ == "__main__":
         sys.exit()
 
     # TODO load configuration settings
+
     currentTimeZone = timezone(UTC_OFFSET_FACTOR * timedelta(hours=UTC_OFFSET_HOURS))
     doNotDisturb = DoNotDisturb(timeFrames=[(0, 9), (23, 24)], tz=currentTimeZone)
     callLog = CallLog(HOURLY_CALL_LIMIT, tz=currentTimeZone)
@@ -56,6 +57,9 @@ if __name__ == "__main__":
                 
             elif callLog.callLimitExceeded():
                 client.createMessage(f'`The hourly call limit was exceeded, you may try again at: {callLog.nextAllowedTime()}`', msgData['channel_id'])
+            # TODO verify the bot isn't already in a server...
+            # elif voiceServerID == client.gateway.getVoiceState():
+            #     pass
             else:
                 await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call('10.13.0.6'))
                 callLog.record()
@@ -64,12 +68,15 @@ if __name__ == "__main__":
 
     @client.event
     async def on_voice_secret_received():
-        # Wait for active VOIP session before proxying traffic
+        # TODO improve the appearance of this code and only run when needed (incoming calls)
+        voip.answerCall.set()
+
+        # Need an active VOIP session before proxying traffic
         await voip.sessionStarted.wait()
         RtpEndpoint.proxy(client.voiceGateway.rtpEndpoint, voip.rtpEndpoint, yCtrl=voip.rtcpEndpoint)
 
     @voip.event
-    async def on_inbound_call_accepted():
+    async def on_inbound_call():
         await client.joinVoice(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
         # TODO uncomment after testing finished
         # client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
