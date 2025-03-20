@@ -18,6 +18,7 @@ class StatusCodes(Enum):
     REQUEST_TIMEOUT = (408, 'Request Timeout')
     BUSY_HERE = (486, 'Busy Here')
     REQUEST_TERMINATED = (487, 'Request Terminated')
+    SERVER_TIMEOUT = (504, 'Server Time-out')
 
     def __init__(self, code, reasonPhrase):
         self.code = code
@@ -224,7 +225,13 @@ class SipRequest(SipMessage):
     
     def getTransactionID(self):
         viaIP, viaPort = self.viaAddress
-        return self.viaParams['branch'] + viaIP + str(viaPort)
+
+        if self.method == 'ACK':
+            matchMethod = 'INVITE'
+        else:
+            matchMethod = self.method
+
+        return self.viaParams['branch'] + viaIP + str(viaPort) + matchMethod
     
 
 class SipResponse(SipMessage):
