@@ -11,19 +11,21 @@ import asyncio
 from os import urandom
 
 
-class Voip():
+TRANSACTION_USER_TIMEOUT = 20
 
+class Voip():
     sipPort: int
     rtpPort: int
     rtcpPort: int
     sip: Sip
     rtpEndpoint: RtpEndpoint
     rtcpEndpoint: RtpEndpoint
+    activeInvite: Transaction
     activeDialog: Dialog 
+    answerCall: asyncio.Event
     sessionStarted: asyncio.Event
     eventHandler: EventHandler
     recvQueue: asyncio.Queue
-
 
     def __init__(self, sipPort, rtpPort, rtcpPort):
         self.sipPort = sipPort
@@ -40,7 +42,9 @@ class Voip():
         self.sipEndpoint = Sip(self.recvQueue, sipPort)
         self.rtpEndpoint = None
         self.rtcpEndpoint = None
+        self.activeInvite = None
         self.activeDialog = None
+        self.answerCall = asyncio.Event()
         self.sessionStarted = asyncio.Event()
 
     # Register voip events through function decorator
@@ -62,32 +66,44 @@ class Voip():
             msg = await self.recvQueue.get()
             asyncio.create_task(self.processMsg(msg))
 
-    # TODO Implement behaviour for not accepting every call, i.e. 300 - 699 responses
     async def processMsg(self, msg):
-        
-        if isinstance(msg, SipRequest):
-            transactionID = msg.getTransactionID()
-            transaction = Transaction.getTransaction(transactionID)
+        transactionID = msg.getTransactionID()
+        transaction = Transaction.getTransaction(transactionID)
 
+        if isinstance(msg, SipRequest):
             match msg.method:
                 case 'INVITE':
-                    # TODO determine if an existing call is in progress and if so send a Busy Here response
+                    if self.activeDialog:
+                        response = transaction.buildResponse(StatusCodes(486, 'Busy Here'))
+                        await transaction.recvQueue.put(response)
+                    else:
+                        response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
+                        await transaction.recvQueue.put(response)
 
-                    response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
-                    await transaction.recvQueue.put(response)
+                        # Call relevant event handler
+                        await self.eventHandler.dispatch('inbound_call')
 
-                    # TODO await an event/signal that secret key has been received
-                    response = transaction.buildResponse(StatusCodes(200, 'OK'))
+                        # Await an event signalling call has been answered
+                        async with asyncio.timeout(TRANSACTION_USER_TIMEOUT):
+                            try:
+                                await self.answerCall.wait()
+                                self.answerCall.clear()
+                            except TimeoutError:
+                                response = transaction.buildResponse(StatusCodes(504, 'Server Time-out'))
+                                transaction.recvQueue.put(response)
+                                return
+                            
+                        response = transaction.buildResponse(StatusCodes(200, 'OK'))
 
-                    # TODO create a function for automatically building a Dialog from a function
-                    remoteTarget = msg.additionalHeaders['Contact']
-                    transaction.dialog = Dialog(transaction.callID, transaction.toTag, "sip:IPCall@{}:{}".format(transaction.localIP, transaction.localPort), 0, transaction.fromTag, "sip:{}:{}".format(transaction.remoteIP, transaction.remotePort), remoteTarget, transaction.sequence)
+                        # TODO create a function for automatically building a Dialog from a transaction?
+                        remoteTarget = msg.additionalHeaders['Contact']
+                        transaction.dialog = Dialog(transaction.callID, transaction.toTag, f"sip:IPCall@{transaction.localIP}:{transaction.localPort}", 0, transaction.fromTag, f"sip:{transaction.remoteIP}:{transaction.remotePort}", remoteTarget, transaction.sequence)
 
-                    await transaction.recvQueue.put(response)
-                    await self.buildSession(transaction.dialog)
+                        await transaction.recvQueue.put(response)
+                        await self.buildSession(transaction.dialog)
 
-                    # Call relevant event handler
-                    await self.eventHandler.dispatch('inbound_call_accepted')
+                        # Call relevant event handler
+                        await self.eventHandler.dispatch('inbound_call_accepted')
 
                 case 'BYE':
                     response = transaction.buildResponse(StatusCodes(200, 'OK'))
@@ -98,7 +114,16 @@ class Voip():
                     await self.eventHandler.dispatch('inbound_call_ended')
 
                 case 'CANCEL':
-                    raise NotImplementedError
+                    inviteTransactionID = transactionID.replace('CANCEL', 'INVITE', 1)
+                    inviteTransaction = Transaction.getTransaction(inviteTransactionID)
+
+                    if inviteTransaction:
+                        response = transaction.buildResponse(StatusCodes(200, 'OK'))
+                        await transaction.recvQueue.put(response)
+
+                        response = inviteTransaction.buildResponse(StatusCodes(487, 'Request Terminated'))
+                        await inviteTransaction.recvQueue.put(response)
+
                 case _:
                     print('Unsupported request method')
 
@@ -121,6 +146,7 @@ class Voip():
 
     async def call(self, remoteIP):
         dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)
+        #TODO raise an exception on call failure?
         await self.buildSession(dialog)
 
     async def endCall(self):
