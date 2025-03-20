@@ -30,6 +30,7 @@ class ClientTransaction(Transaction):
 
         self.branch = self._genBranch()
         self.id = self.branch + self.requestMethod
+        self.receivedProvisional = asyncio.Event()
         Transaction._transactions[self.id] = self
 
     def buildRequest(self, method):
@@ -76,6 +77,7 @@ class ClientTransaction(Transaction):
 
             if response.statusCode.isProvisional():
                 self.state = "Proceeding"
+                self.receivedProvisional.set()
                 # Await non-Provisional response
                 while response.statusCode.isProvisional():
                     await self.notifyTU(response)
@@ -119,7 +121,7 @@ class ClientTransaction(Transaction):
         return self.dialog
 
     async def nonInvite(self, method):
-        # TODO Ensure dialog established
+        # TODO Ensure dialog established (Except for Cancel)
         # if not self.dialog:
         #     print("No dialog")
         #     exit()
@@ -172,6 +174,20 @@ class ClientTransaction(Transaction):
         if autoClean:
             self.terminate()
     
+    async def cancel(self, transaction):
+        request = transaction.buildRequest('CANCEL')
+
+        if transaction.state == 'Calling':
+            transactionTimeout = 64 * Transaction.T1
+            try:
+                async with asyncio.timeout(transactionTimeout):
+                    await transaction.receivedProvisional.wait()
+            except TimeoutError:
+                pass
+
+        if transaction.state == 'Proceeding':
+            self.sendToTransport(request)
+
     def _genCallID(self):
         return hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
     
