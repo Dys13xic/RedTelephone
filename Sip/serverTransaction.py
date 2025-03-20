@@ -25,7 +25,7 @@ class ServerTransaction(Transaction):
         self.fromTag = request.fromParams['tag']
         self.sequence = request.seqNum
         self.request = request
-        self.id = self.branch + self.remoteIP + str(self.remotePort)
+        self.id = self.branch + self.remoteIP + str(self.remotePort) + self.requestMethod
         Transaction._transactions[self.id] = self
 
     def buildResponse(self, statusCode):
@@ -89,7 +89,7 @@ class ServerTransaction(Transaction):
 
             # Keep transaction alive to absorb ACK messages from final response retransmissions
             self.state = 'Confirmed'
-            asyncio.sleep(Transaction.T4)
+            await asyncio.sleep(Transaction.T4)
 
         # TODO The remote target MUST be set to the URI from the Contact header field of the request.
         # remoteTarget = None
@@ -99,6 +99,7 @@ class ServerTransaction(Transaction):
         return self.dialog
         
     async def nonInvite(self):
+        # TODO Ensure dialog established (Except for Cancel)
         self.state = 'Trying'
         await self.notifyTU(self.request)
 
