@@ -30,9 +30,9 @@ class Sip():
         return dialog
 
     # TODO implement
-    def cancel(self, address, port):
-        print("Call cancelled")
-        raise NotImplementedError
+    async def cancel(self, transaction):
+        print("Cancelling call.")
+        transaction = ClientTransaction(self.notifyTU, self.transport.send, 'CANCEL', (self.transport.ip, self.port), (remoteIP, remotePort))
 
     async def bye(self, dialog):
         print("Ending call")
