@@ -117,12 +117,15 @@ class Voip():
                     inviteTransactionID = transactionID.replace('CANCEL', 'INVITE', 1)
                     inviteTransaction = Transaction.getTransaction(inviteTransactionID)
 
-                    if inviteTransaction:
+                    if inviteTransaction:                      
                         response = transaction.buildResponse(StatusCodes(200, 'OK'))
                         await transaction.recvQueue.put(response)
 
                         response = inviteTransaction.buildResponse(StatusCodes(487, 'Request Terminated'))
                         await inviteTransaction.recvQueue.put(response)
+
+                        self.cleanup()
+                        await self.eventHandler.dispatch('inbound_call_cancelled')
 
                 case _:
                     print('Unsupported request method')

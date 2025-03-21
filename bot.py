@@ -78,13 +78,16 @@ if __name__ == "__main__":
     @voip.event
     async def on_inbound_call():
         await client.joinVoice(HOME_GUILD_ID, HOME_VOICE_CHANNEL_ID)
-        # TODO uncomment after testing finished
-        # client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
+        client.createMessage('@everyone', HOME_TEXT_CHANNEL_ID)
 
     @voip.event
     async def on_inbound_call_ended():
         await client.leaveVoice()
         # TODO cleanup the RTP assets?
+
+    @voip.event
+    async def on_inbound_call_cancelled():
+        await client.leaveVoice()
 
     async def main():
         if LOGGING:
