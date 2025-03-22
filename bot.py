@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 LOGGING = True
 
+VOIP_HANDSET_ADDRESS = '10.13.0.6'
 RTP_PORT = 5004
 RTCP_PORT = 5005
 SIP_PORT = 5060
@@ -61,7 +62,7 @@ if __name__ == "__main__":
             # elif voiceServerID == client.gateway.getVoiceState():
             #     pass
             else:
-                await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call('10.13.0.6'))
+                await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(VOIP_HANDSET_ADDRESS))
                 callLog.record()
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
