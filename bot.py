@@ -51,16 +51,18 @@ if __name__ == "__main__":
         authorID = msgData['author']['id']
         # TODO is it more appropriate to keep the stuff users would see to client?
         voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
+        _, botVoiceChannelID = client.gateway.getVoiceState(client.gateway.userID)
         if msgData['guild_id'] == voiceServerID and voiceChannelID:
-            
+
             if doNotDisturb.violated():
                 client.createMessage('`The line is not monitored at this hour.`', msgData['channel_id'])
                 
             elif callLog.callLimitExceeded():
                 client.createMessage(f'`The hourly call limit was exceeded, you may try again at: {callLog.nextAllowedTime()}`', msgData['channel_id'])
-            # TODO verify the bot isn't already in a server...
-            # elif voiceServerID == client.gateway.getVoiceState():
-            #     pass
+
+            elif botVoiceChannelID:
+                client.createMessage('`The line is already in use.`', msgData['channel_id'])
+                pass
             else:
                 await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(VOIP_HANDSET_ADDRESS))
                 callLog.record()
