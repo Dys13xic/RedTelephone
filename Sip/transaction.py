@@ -1,7 +1,27 @@
 import asyncio
 import random
+from collections.abc import Callable
 
 class Transaction:
+    # Type Hints
+    notifyTU: Callable
+    sendToTransport: Callable
+    requestMethod: str
+    localIP: str
+    localPort: int
+    remoteIP: str
+    remotePort: int
+    #dialog:
+    recvQueue: asyncio.Queue
+    id: str
+    # TODO change state to enum
+    state: str
+    fromTag: str
+    toTag: str
+    callID: str
+    branch: str
+    sequence: int
+
     # Constants
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
     T1 = 0.5
