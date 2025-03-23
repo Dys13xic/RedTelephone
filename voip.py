@@ -17,7 +17,7 @@ class Voip():
     sipPort: int
     rtpPort: int
     rtcpPort: int
-    sip: Sip
+    sipEndpoint: Sip
     rtpEndpoint: RtpEndpoint
     rtcpEndpoint: RtpEndpoint
     activeInvite: Transaction
@@ -73,10 +73,11 @@ class Voip():
         if isinstance(msg, SipRequest):
             match msg.method:
                 case 'INVITE':
-                    if self.activeDialog:
+                    if self.activeInvite or self.activeDialog:
                         response = transaction.buildResponse(StatusCodes(486, 'Busy Here'))
                         await transaction.recvQueue.put(response)
                     else:
+                        self.activeInvite = transaction
                         response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
                         await transaction.recvQueue.put(response)
 
@@ -182,12 +183,14 @@ class Voip():
         self.rtpEndpoint = endpoint
         self.rtcpEndpoint = ctrlEndpoint
         self.activeDialog = dialog
+        self.activeInvite = None
         self.sessionStarted.set()
 
     def cleanup(self):
         self.rtpEndpoint.stop()
         self.rtcpEndpoint.stop()
 
+        self.activeInvite = None
         self.activeDialog = None
         self.rtpEndpoint, self.rtcpEndpoint = None, None
 
