@@ -53,7 +53,7 @@ class Client:
     # Gateway Events
     # ---------------
     async def on_message_create(self, data):
-        userID = self.gateway.getUserID()
+        userID = self.gateway.userID
         for user in data['mentions']:
             if user['id'] == userID:
                 await self.eventHandler.dispatch('user_mention', data)

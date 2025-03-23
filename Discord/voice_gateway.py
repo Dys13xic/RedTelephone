@@ -112,7 +112,7 @@ class VoiceGateway(GatewayConnection):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                     
                 # Identify to API
-                data = {'server_id': self.serverID, 'user_id': self.gateway.getUserID(), 'session_id': self.gateway.getSessionID(), 'token': self.token}
+                data = {'server_id': self.serverID, 'user_id': self.gateway.userID, 'session_id': self.gateway.sessionID, 'token': self.token}
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY.value, data)
                 await self.send(identifyMsg)
 

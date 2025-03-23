@@ -50,26 +50,17 @@ class CloseCodes():
             return True
 
 class Gateway(GatewayConnection):
-    _userID: int
-    _sessionID: int
+    userID: int
+    sessionID: int
     _eventDispatcher: EventHandler.dispatch
     _voiceState: dict
 
     def __init__(self, token, eventDispatcher):
         super().__init__(token, DEFAULT_ENDPOINT, '&encoding=json')
-        self._userID = None
-        self._sessionID = None
+        self.userID = None
+        self.sessionID = None
         self._eventDispatcher = eventDispatcher
         self._voiceState = {}
-
-    def getUserID(self):
-        return self._userID
-    
-    def getSessionID(self):
-        return self._sessionID
-
-    def setSessionID(self, sessionID):
-        self._sessionID = sessionID
 
     def getVoiceState(self, userID):
         return self._voiceState.get(userID, [None, None])
@@ -86,7 +77,7 @@ class Gateway(GatewayConnection):
 
     def _clean(self):
         super()._clean()
-        self._sessionID = None
+        self.sessionID = None
         self.endpoint = DEFAULT_ENDPOINT
         self.setParams('&encoding=json')
 
@@ -97,9 +88,9 @@ class Gateway(GatewayConnection):
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
 
-                if self._sessionID:
+                if self.sessionID:
                     # Resume connection
-                    data = {'token': self.token, 'session_id': self._sessionID, 'seq': self.lastSequence}
+                    data = {'token': self.token, 'session_id': self.sessionID, 'seq': self.lastSequence}
                     opcode = OpCodes.RESUME
                 else:
                     # Identify to API
@@ -117,9 +108,9 @@ class Gateway(GatewayConnection):
                 args = []
 
                 if eventType == "READY":
-                    self._userID = msgObj.d['user']['id']
+                    self.userID = msgObj.d['user']['id']
                     self.setEndpoint = msgObj.d['resume_gateway_url']
-                    self._sessionID = msgObj.d['session_id']
+                    self.sessionID = msgObj.d['session_id']
 
                 if eventType == 'MESSAGE_CREATE':
                     args = [msgObj.d]
@@ -128,8 +119,8 @@ class Gateway(GatewayConnection):
                     # Track user's current voice channel
                     self._voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
                     # Keep bot session ID up-to-date
-                    if msgObj.d['user_id'] == self.getUserID():
-                        self._sessionID = msgObj.d['session_id']
+                    if msgObj.d['user_id'] == self.userID:
+                        self.sessionID = msgObj.d['session_id']
 
 
                 if eventType == "VOICE_SERVER_UPDATE":
