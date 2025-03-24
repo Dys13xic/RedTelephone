@@ -63,10 +63,7 @@ class Client:
         # TODO handle when endpoint == NULL
         self.voiceGateway.token = token
         self.voiceGateway.endpoint = endpoint
-        try:
-            await self.voiceGateway.connect()
-        except asyncio.CancelledError:
-            print('Voice gateway cancelled.')
+        asyncio.create_task(self.voiceGateway.connect())
 
     # Voice Gateway Events
     # ---------------------
