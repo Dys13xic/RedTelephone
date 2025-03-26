@@ -12,6 +12,6 @@ class EventHandler:
         if eventName in self.events:
             for callback in self.events[eventName]:
                 if asyncio.iscoroutinefunction(callback):
-                    await callback(*args)
+                    asyncio.create_task(callback(*args))
                 else:
                     callback(*args)
