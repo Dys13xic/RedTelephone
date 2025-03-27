@@ -13,9 +13,6 @@ from os import urandom
 from enum import Enum
 
 DISCORD_RTP_PORT = 5003
-SOURCE_IP = '64.231.153.189'
-SOURCE_PORT = 5003
-
 
 class OpCodes(Enum):
     IDENTIFY = 0
@@ -130,9 +127,8 @@ class VoiceGateway(GatewayConnection):
                 )
                 self.rtpEndpoint = endpoint
             
-                # TODO Establish UDP socket for RTP and peform IP discovery
-                # IOT replace local address info
-                data = {'protocol': 'udp', 'data': {'address': SOURCE_IP, 'port': SOURCE_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
+                await self.rtpEndpoint.recvPublicIP.wait()
+                data = {'protocol': 'udp', 'data': {'address': self.rtpEndpoint.publicIP, 'port': DISCORD_RTP_PORT, 'mode': 'aead_xchacha20_poly1305_rtpsize'}}
                 selectMsg = GatewayMessage(OpCodes.SELECT_PROTOCOL.value, data)
                 await self.send(selectMsg)
 

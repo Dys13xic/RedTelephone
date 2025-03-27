@@ -112,6 +112,15 @@ class RtpEndpoint(RtpEndpointProtocol):
         self.proxyEndpoint = None
         self.ctrlProxyEndpoint = None
 
+        self.publicIP = None
+        self.recvPublicIP = asyncio.Event()
+
+    def connection_made(self, transport):
+        super().connection_made(transport)
+        if self.encrypted:
+            # Send IP discovery packet
+            self._transport.sendto(int.to_bytes(1, 2) + int.to_bytes(70, 2) + int.to_bytes(self.ssrc, 4) + bytearray(66))
+
     def send(self, msgObj):
         if self.ssrc:
             msgObj.setSSRC(self.ssrc)
@@ -132,6 +141,11 @@ class RtpEndpoint(RtpEndpointProtocol):
                 print(e)
 
     def datagram_received(self, data, addr):
+        if not self.publicIP and self.isPacketDiscoveryResponse(data):
+            self.publicIP = self.parsePacketDiscoveryIP(data)
+            self.recvPublicIP.set()
+            return
+        
         msgObj = RtpMessage(data, self.encrypted)
 
         if self.encrypted:
@@ -145,6 +159,17 @@ class RtpEndpoint(RtpEndpointProtocol):
 
         elif self.proxyEndpoint:
             self.proxyEndpoint.send(msgObj)
+
+    # TODO create child class for Discord specific operations?
+    def isPacketDiscoveryResponse(self, data):
+        if int.from_bytes(data[0:2]) == 2 and int.from_bytes(data[2:4]) == 70 and int.to_bytes(self.ssrc, 4) == data[4:8]:
+            return True
+        else:
+            return False
+        
+    def parsePacketDiscoveryIP(self, data):
+        encodedIP, _ = data[8:].split(b'\x00', 1)
+        return encodedIP.decode('utf-8')
 
     def encrypt(self, msgObj):
         self._nonceCount += 1
