@@ -8,7 +8,8 @@ import websockets
 # Standard Library
 import asyncio
 
-DEFAULT_ENDPOINT = "wss://gateway.discord.gg/"
+DEFAULT_ENDPOINT = 'wss://gateway.discord.gg/'
+DEFAULT_PARAMS = '&encoding=json'
 
 
 class OpCodes:
@@ -56,7 +57,7 @@ class Gateway(GatewayConnection):
     _voiceState: dict
 
     def __init__(self, token, eventDispatcher):
-        super().__init__(token, DEFAULT_ENDPOINT, '&encoding=json')
+        super().__init__(token, DEFAULT_ENDPOINT, DEFAULT_PARAMS)
         self.userID = None
         self.sessionID = None
         self._eventDispatcher = eventDispatcher
@@ -79,7 +80,7 @@ class Gateway(GatewayConnection):
         super()._clean()
         self.sessionID = None
         self.endpoint = DEFAULT_ENDPOINT
-        self.setParams('&encoding=json')
+        self.setParams(DEFAULT_PARAMS)
 
     async def processMsg(self, msgObj):
         match msgObj.op:
