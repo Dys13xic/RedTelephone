@@ -10,6 +10,9 @@ from events import EventHandler
 import asyncio
 from os import urandom
 
+DEFAULT_SIP_PORT = 5060
+DEFAULT_RTP_PORT = 5004
+DEFAULT_RTCP_PORT = 5005
 
 TRANSACTION_USER_TIMEOUT = 20
 
@@ -27,7 +30,7 @@ class Voip():
     eventHandler: EventHandler
     recvQueue: asyncio.Queue
 
-    def __init__(self, sipPort, rtpPort, rtcpPort):
+    def __init__(self, publicIP, sipPort=DEFAULT_SIP_PORT, rtpPort=DEFAULT_RTP_PORT, rtcpPort=DEFAULT_RTCP_PORT):
         self.sipPort = sipPort
         self.rtpPort = rtpPort
 
@@ -39,7 +42,7 @@ class Voip():
         self.eventHandler = EventHandler()
 
         self.recvQueue = asyncio.Queue()
-        self.sipEndpoint = Sip(self.recvQueue, sipPort)
+        self.sipEndpoint = Sip(self.recvQueue, publicIP, self.sipPort)
         self.rtpEndpoint = None
         self.rtcpEndpoint = None
         self.activeInvite = None
