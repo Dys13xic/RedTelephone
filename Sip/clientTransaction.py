@@ -8,6 +8,8 @@ import random
 import hashlib
 
 class ClientTransaction(Transaction):
+    receivedProvisional: asyncio.Event
+
     def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog=None):
         super().__init__(notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
         
@@ -173,20 +175,6 @@ class ClientTransaction(Transaction):
 
         if autoClean:
             self.terminate()
-    
-    async def cancel(self, transaction):
-        request = transaction.buildRequest('CANCEL')
-
-        if transaction.state == 'Calling':
-            transactionTimeout = 64 * Transaction.T1
-            try:
-                async with asyncio.timeout(transactionTimeout):
-                    await transaction.receivedProvisional.wait()
-            except TimeoutError:
-                pass
-
-        if transaction.state == 'Proceeding':
-            self.sendToTransport(request)
 
     def _genCallID(self):
         return hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
