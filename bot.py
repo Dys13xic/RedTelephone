@@ -19,7 +19,7 @@ async def main():
     # Retrieve the discord bot token
     try:
         with open('token.txt', 'r', encoding='utf-8') as f:
-            token = f.readline()
+            token = f.readline().strip()
     except Exception:
         sys.exit()
 
