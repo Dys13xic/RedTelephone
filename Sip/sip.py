@@ -5,19 +5,22 @@ from .transaction import Transaction
 from .clientTransaction import ClientTransaction
 from .serverTransaction import ServerTransaction
 from .dialog import Dialog
+from exceptions import InviteError
 
 # Standard Library
 import asyncio
 
-SIP_PORT = 5060
 
 class Sip():
+    transactionUserQueue: asyncio.Queue
     transport: Transport
+    publicIP: str
     port: int
 
-    def __init__(self, transactionUserQueue, port=SIP_PORT):
+    def __init__(self, transactionUserQueue, publicIP, port):
         self.transactionUserQueue = transactionUserQueue
         self.transport = None
+        self.publicIP = publicIP
         self.port = port
 
     async def notifyTU(self, msg):
@@ -27,12 +30,26 @@ class Sip():
         print("Attempting to initiate a call with {}:{}".format(address, port))
         transaction = ClientTransaction(self.notifyTU, self.transport.send, "INVITE", (self.transport.ip, self.port), (address, port))
         dialog = await transaction.invite()
+        
+        if not dialog:
+            raise InviteError('Failed to establish a dialog.')
+        
         return dialog
 
-    # TODO implement
     async def cancel(self, transaction):
         print("Cancelling call.")
-        transaction = ClientTransaction(self.notifyTU, self.transport.send, 'CANCEL', (self.transport.ip, self.port), (remoteIP, remotePort))
+        # TODO create a transaction w/ matching
+        if transaction.state == 'Calling':
+            transactionTimeout = 64 * Transaction.T1
+            try:
+                async with asyncio.timeout(transactionTimeout):
+                    await transaction.receivedProvisional.wait()
+            except TimeoutError:
+                pass
+
+        if self.state == 'Proceeding':
+            cancelTransaction = ClientTransaction()
+            await cancelTransaction.nonInvite('CANCEL')
 
     async def bye(self, dialog):
         print("Ending call")
@@ -77,6 +94,6 @@ class Sip():
     async def run(self):
         loop = asyncio.get_event_loop()
         _, self.transport = await loop.create_datagram_endpoint(
-        lambda: Transport(self.port, handleMsgCallback=self.handleMsg),
+        lambda: Transport(self.publicIP, self.port, handleMsgCallback=self.handleMsg),
         local_addr=("0.0.0.0", self.port),
         )
