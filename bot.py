@@ -2,7 +2,7 @@
 from Discord.client import Client
 from rtp import RtpEndpoint
 from voip import Voip
-from doNotDisturb import DoNotDisturb, Weekdays
+from doNotDisturb import DoNotDisturb
 from callLog import CallLog
 from config import Config
 
@@ -63,6 +63,7 @@ async def main():
 
         # Need an active VOIP session before proxying traffic
         await voip.sessionStarted.wait()
+        await client.voiceGateway.updateSpeaking()
         RtpEndpoint.proxy(client.voiceGateway.rtpEndpoint, voip.rtpEndpoint, yCtrl=voip.rtcpEndpoint)
 
     @voip.event

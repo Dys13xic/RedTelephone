@@ -13,6 +13,13 @@ from os import urandom
 from enum import Enum
 
 DISCORD_RTP_PORT = 5003
+VOICEGATEWAY_DELAY = 0
+
+class SpeakingModes:
+    MICROPHONE = 1
+    SOUNDSHARE = 2
+    MICROPHONE_PRIORITY = 5
+    SOUNDSHARE_PRIORITY = 6
 
 class OpCodes(Enum):
     IDENTIFY = 0
@@ -135,10 +142,6 @@ class VoiceGateway(GatewayConnection):
             case OpCodes.SESSION_DESCRIPTION.value:
                 self.rtpEndpoint.setSecretKey(msgObj.d['secret_key'])
 
-                data = {'speaking': 5, 'delay': 0, 'ssrc': self.ssrc}
-                speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
-                await self.send(speakingMsg)
-
             case OpCodes.SPEAKING.value:
                 pass
 
@@ -184,6 +187,13 @@ class VoiceGateway(GatewayConnection):
     def genHeartBeat(self):
         data = {'t': VoiceGateway.genNonce(), 'seq_ack': self.lastSequence}
         return GatewayMessage(OpCodes.HEARTBEAT.value, data)
+    
+    # TODO only send speaking update when the call has been accepted
+    # TODO add enums representing different values accepted by 'speaking' param
+    async def updateSpeaking(self, speaking=SpeakingModes.MICROPHONE_PRIORITY):
+        data = {'speaking': speaking, 'delay': VOICEGATEWAY_DELAY, 'ssrc': self.ssrc}
+        speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
+        await self.send(speakingMsg)
 
     @staticmethod
     def genNonce():
