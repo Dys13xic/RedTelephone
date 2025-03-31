@@ -15,6 +15,7 @@ class StatusCodes(Enum):
     MOVED_TEMPORARILY = (302, 'Moved Temporarily')
     USE_PROXY = (305, 'Use Proxy')
     BAD_REQUEST = (400, 'Bad Request')
+    FORBIDDEN = (403, 'Forbidden')
     REQUEST_TIMEOUT = (408, 'Request Timeout')
     BUSY_HERE = (486, 'Busy Here')
     REQUEST_TERMINATED = (487, 'Request Terminated')

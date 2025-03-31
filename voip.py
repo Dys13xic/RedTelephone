@@ -5,6 +5,7 @@ from Sip.transaction import Transaction
 from Sip.dialog import Dialog
 from rtp import RtpEndpoint
 from events import EventHandler
+from addressFilter import AddressFilter
 
 # Standard Library
 import asyncio
@@ -30,7 +31,7 @@ class Voip():
     eventHandler: EventHandler
     recvQueue: asyncio.Queue
 
-    def __init__(self, publicIP, sipPort=DEFAULT_SIP_PORT, rtpPort=DEFAULT_RTP_PORT, rtcpPort=DEFAULT_RTCP_PORT):
+    def __init__(self, publicIP, sipPort=DEFAULT_SIP_PORT, rtpPort=DEFAULT_RTP_PORT, rtcpPort=DEFAULT_RTCP_PORT, allowList=[]):
         self.sipPort = sipPort
         self.rtpPort = rtpPort
 
@@ -38,7 +39,8 @@ class Voip():
             self.rtcpPort = rtcpPort
         else:
             self.rtcpPort = rtpPort + 1
-
+        
+        self.addressFilter = AddressFilter(allowList)
         self.eventHandler = EventHandler()
 
         self.recvQueue = asyncio.Queue()
@@ -62,7 +64,7 @@ class Voip():
         return wrapper
     
     async def run(self):
-        await asyncio.gather(self.sipEndpoint.run(), self.manageSip())
+        await asyncio.gather(self.sipEndpoint.run(), self.manageSip(), self.addressFilter.run())
 
     async def manageSip(self):
         while True:
@@ -79,7 +81,8 @@ class Voip():
                     if self.activeInvite or self.activeDialog:
                         response = transaction.buildResponse(StatusCodes(486, 'Busy Here'))
                         await transaction.recvQueue.put(response)
-                    else:
+
+                    elif msg.viaAddress in self.addressFilter.getAddresses():
                         self.activeInvite = transaction
                         response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
                         await transaction.recvQueue.put(response)
@@ -108,6 +111,10 @@ class Voip():
 
                         # Call relevant event handler
                         await self.eventHandler.dispatch('inbound_call_accepted')
+
+                    else:
+                        response = transaction.buildResponse(StatusCodes(403, 'Forbidden'))
+                        await transaction.recvQueue.put(response)
 
                 case 'BYE':
                     response = transaction.buildResponse(StatusCodes(200, 'OK'))
