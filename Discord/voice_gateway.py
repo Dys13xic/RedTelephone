@@ -188,8 +188,6 @@ class VoiceGateway(GatewayConnection):
         data = {'t': VoiceGateway.genNonce(), 'seq_ack': self.lastSequence}
         return GatewayMessage(OpCodes.HEARTBEAT.value, data)
     
-    # TODO only send speaking update when the call has been accepted
-    # TODO add enums representing different values accepted by 'speaking' param
     async def updateSpeaking(self, speaking=SpeakingModes.MICROPHONE_PRIORITY):
         data = {'speaking': speaking, 'delay': VOICEGATEWAY_DELAY, 'ssrc': self.ssrc}
         speakingMsg = GatewayMessage(OpCodes.SPEAKING.value, data)
