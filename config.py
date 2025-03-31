@@ -18,7 +18,7 @@ class Config():
     def __init__(self):
         self.publicIP = None
         self.voipAddress = None
-        self.voipWhiteList = []
+        self.voipAllowList = []
         self.discordGuildID = None
         self.discordVoiceChannelID = None
         self.discordTextChannelID = None
@@ -44,8 +44,8 @@ class Config():
 
         self.voipAddress = config.get('VoIP', 'Address')
         
-        temp = config.get('VoIP', 'Whitelist', fallback='')
-        self.voipWhiteList = temp.split(',')
+        temp = config.get('VoIP', 'AllowList', fallback='')
+        self.voipAllowList = temp.split(',')
 
         self.discordGuildID = config.get('Discord', 'HomeGuildID')
         self.discordVoiceChannelID = config.get('Discord', 'HomeVoiceChannelID')
