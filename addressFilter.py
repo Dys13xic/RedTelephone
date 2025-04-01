@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import concurrent.futures
 
 class AddressFilter():
     def __init__(self, addresses):
@@ -15,17 +16,15 @@ class AddressFilter():
 
     async def run(self):
         while self._addressMap:
-            await self.resoveDomains() 
+            await self.resolveDomains() 
             await asyncio.sleep(300)
 
-    async def resoveDomains(self):
-        activeTasks = []
+    async def resolveDomains(self):
+        loop = asyncio.get_running_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+        futures = [loop.run_in_executor(executor, updateHostname, domainName) for domainName in self._addressMap.keys()]
+        results = await asyncio.gather(*futures)
 
-        for domainName in self._addressMap.keys():
-            newTask = asyncio.create_task(asyncio.to_thread(lambda: domainName, socket.gethostbyname(domainName)))
-            activeTasks.append(newTask)
-        
-        results = await asyncio.gather(*activeTasks)
         for domainName, address in results:
             self._addressMap[domainName] = address
 
@@ -38,6 +37,9 @@ class AddressFilter():
                 result.add(address)
 
         return result
+    
+def updateHostname(domainName):
+    return domainName, socket.gethostbyname(domainName)
 
 def _isIP(address):
     return address.replace('.', '').isnumeric()
