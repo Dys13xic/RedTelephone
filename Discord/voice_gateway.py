@@ -61,6 +61,13 @@ class CloseCodes():
     UNKNOWN_ENCRYPTION_MODE = 4016
     BAD_REQUEST = 4020
 
+    @staticmethod
+    def reconnectable(closeCode):
+        if closeCode  in [CloseCodes.DISCONNECTED]:
+            return False
+        
+        return True
+        
 class VoiceGateway(GatewayConnection):
     gateway: Gateway
     serverID: str
@@ -83,23 +90,39 @@ class VoiceGateway(GatewayConnection):
         super().__init__(self.token, self.endpoint)
 
     async def connect(self):
-        await self._start()
-        # attempts = 2
-        # while attempts:
-        #     try:
-        #         await self._start()
-        #     except websockets.exceptions.ConnectionClosedOK:
-        #         self.disconnect()
-        #         break
-        #     except websockets.exceptions.ConnectionClosedError as e:
-        #         self._stop(clean=CloseCodes.restartRequired(e.code))
+        while True:
+            try:
+                await self._start()
+            except websockets.exceptions.ConnectionClosedOK:
+                self.disconnect()
+                break
+            except websockets.exceptions.ConnectionClosedError as e:                   
+                if CloseCodes.reconnectable(e.code):
+                    if self.attempts < 2:
+                        self._stop(clean=False)
+                    else:
+                        self._stop(clean=True)
+                        self.gateway.updateVoiceChannel(self.serverID, self.channelID)
+                        break
+                else:
+                    self._stop(clean=True)
+                    break
 
     async def disconnect(self):
         await super().disconnect()
+        await self.gateway.updateVoiceChannel(self.serverID, None)
+
+    async def _stop(self, clean=True):
         if self.rtpEndpoint:
             self.rtpEndpoint.stop()
-            self.rtpEndpoint = None
-        await self.gateway.updateVoiceChannel(self.serverID, None)
+
+        super()._stop(clean)
+
+    def _clean(self):
+        super()._clean()
+        self.endpoint = None
+        self.ssrc = None
+        self.rtpEndpoint = None
 
     async def processMsg(self, msgObj):
         # Update sequence number
@@ -149,6 +172,7 @@ class VoiceGateway(GatewayConnection):
                 pass
 
             case OpCodes.RESUMED.value:
+                self.attempts = 0
                 pass
 
             case OpCodes.CLIENTS_CONNECT.value:
