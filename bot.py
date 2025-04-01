@@ -32,7 +32,7 @@ async def main():
     callLog = CallLog(config.hourlyCallLimit, tz=currentTimeZone)
 
     client = Client(token)
-    voip = Voip(config.publicIP, allowList=config.voipAddress + config.voipAllowList)
+    voip = Voip(config.publicIP, allowList=[config.voipAddress] + config.voipAllowList)
 
     @client.event
     async def on_user_mention(msgData):
