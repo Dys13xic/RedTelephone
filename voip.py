@@ -78,11 +78,13 @@ class Voip():
         if isinstance(msg, SipRequest):
             match msg.method:
                 case 'INVITE':
+                    viaIP, viaPort = msg.viaAddress
+                    
                     if self.activeInvite or self.activeDialog:
                         response = transaction.buildResponse(StatusCodes(486, 'Busy Here'))
                         await transaction.recvQueue.put(response)
 
-                    elif msg.viaAddress in self.addressFilter.getAddresses():
+                    elif viaIP in self.addressFilter.getAddresses():
                         self.activeInvite = transaction
                         response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
                         await transaction.recvQueue.put(response)
