@@ -6,6 +6,7 @@ from Sip.dialog import Dialog
 from rtp import RtpEndpoint
 from events import EventHandler
 from addressFilter import AddressFilter
+from exceptions import InviteError
 
 # Standard Library
 import asyncio
@@ -161,16 +162,21 @@ class Voip():
             print('Unsupported message type')
 
     async def call(self, remoteIP):
-        dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)
-        #TODO raise an exception on call failure?
+        try:
+            dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)
+        except InviteError:
+            raise
+
         await self.buildSession(dialog)
 
+    # TODO possibllity of a race condition where a Dialog is created after the if statement and cleanup causes issues?
     async def endCall(self):
         if self.activeDialog:
             await self.sipEndpoint.bye(self.activeDialog)
-        else:
+            self.cleanup()
+        elif self.activeInvite:
             await self.sipEndpoint.cancel(self.activeInvite)
-        self.cleanup()
+            self.cleanup()
 
     async def buildSession(self, dialog):
         remoteIP = dialog.getRemoteIP()
