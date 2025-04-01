@@ -127,7 +127,7 @@ class Voip():
                     await self.eventHandler.dispatch('inbound_call_ended')
 
                 case 'CANCEL':
-                    inviteTransactionID = transactionID.replace('CANCEL', 'INVITE', 1)
+                    inviteTransactionID = transactionID.replace('CANCEL', 'INVITE')
                     inviteTransaction = Transaction.getTransaction(inviteTransactionID)
 
                     if inviteTransaction:                      
@@ -166,7 +166,10 @@ class Voip():
         await self.buildSession(dialog)
 
     async def endCall(self):
-        await self.sipEndpoint.bye(self.activeDialog)
+        if self.activeDialog:
+            await self.sipEndpoint.bye(self.activeDialog)
+        else:
+            await self.sipEndpoint.cancel(self.activeInvite)
         self.cleanup()
 
     async def buildSession(self, dialog):

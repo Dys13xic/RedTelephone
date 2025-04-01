@@ -36,19 +36,18 @@ class Sip():
         
         return dialog
 
-    async def cancel(self, transaction):
+    async def cancel(self, inviteTransaction):
         print("Cancelling call.")
-        # TODO create a transaction w/ matching
-        if transaction.state == 'Calling':
+        if inviteTransaction.state == 'Calling':
             transactionTimeout = 64 * Transaction.T1
             try:
                 async with asyncio.timeout(transactionTimeout):
-                    await transaction.receivedProvisional.wait()
+                    await inviteTransaction.receivedProvisional.wait()
             except TimeoutError:
                 pass
 
         if self.state == 'Proceeding':
-            cancelTransaction = ClientTransaction()
+            cancelTransaction = ClientTransaction.cancelFromInvite(inviteTransaction)
             await cancelTransaction.nonInvite('CANCEL')
 
     async def bye(self, dialog):
