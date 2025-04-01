@@ -112,7 +112,7 @@ class VoiceGateway(GatewayConnection):
         await super().disconnect()
         await self.gateway.updateVoiceChannel(self.serverID, None)
 
-    async def _stop(self, clean=True):
+    def _stop(self, clean=True):
         if self.rtpEndpoint:
             self.rtpEndpoint.stop()
 
