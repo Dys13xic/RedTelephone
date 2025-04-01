@@ -34,7 +34,7 @@ class GatewayConnection:
     token: str
     lastSequence: int
     endpoint: str
-    _params: str
+    params: str
     _heartbeatInterval: float
     _sendQueue: asyncio.Queue
     _tasks: asyncio.Future
@@ -44,14 +44,12 @@ class GatewayConnection:
         self.token = token
         self.lastSequence = None
         self.endpoint = endpoint
-        self._params = params
+        self.params = params
         self._heartbeatInterval = 1
         self._sendQueue = asyncio.Queue()
         self._tasks = None
         self._connected = asyncio.Event()
-
-    def setParams(self, params):
-        self._params = params
+        self.attempts = 0
 
     def setHeartbeatInterval(self, ms):
         self._heartbeatInterval = ms / 1000
@@ -65,7 +63,8 @@ class GatewayConnection:
         self._stop()
 
     async def _start(self):
-        async with websockets.connect(self.endpoint + '?v={}'.format(API_VERSION) + self._params, open_timeout=15) as websock:
+        self.attempts += 1
+        async with websockets.connect(self.endpoint + '?v={}'.format(API_VERSION) + self.params, open_timeout=15) as websock:
             self._websock = websock
             self._tasks = asyncio.gather(self._recvLoop(websock), self._heartbeatLoop())
             self._connected.set()
@@ -73,7 +72,7 @@ class GatewayConnection:
 
     def _stop(self, clean=True):
         self._connected.clear()
-        self._tasks.cancel()      
+        self._tasks.cancel()
         if clean:
             self._clean()
 
@@ -100,10 +99,11 @@ class GatewayConnection:
     def _clean(self):
         self.lastSequence = None
         # self.endpoint = ''
-        self._params = ''
+        self.params = ''
         self._heartbeatInterval = 1
         self._sendQueue = asyncio.Queue()
         self._tasks = None
+        self.attempts = 0
 
     async def processMsg(self, msgObj):
         raise NotImplementedError
