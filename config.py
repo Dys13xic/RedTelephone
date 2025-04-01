@@ -35,7 +35,7 @@ class Config():
 
         for section, options in REQUIRED_FIELDS.items():
             for o in options:
-                if not config.has_option(section, o):
+                if not config.has_option(section, o) or config.get(section, o) == '':
                     raise Exception(f'Mandatory parameter "{o}" missing from [{section}] section in config.ini')
 
         self.publicIP = config.get('Server', 'PublicIP')
@@ -45,7 +45,10 @@ class Config():
         self.voipAddress = config.get('VoIP', 'Address')
         
         temp = config.get('VoIP', 'AllowList', fallback='')
-        self.voipAllowList = temp.split(',')
+        if temp:
+            self.voipAllowList = temp.split(',')
+        else:
+            self.voipAllowList = []
 
         self.discordGuildID = config.get('Discord', 'HomeGuildID')
         self.discordVoiceChannelID = config.get('Discord', 'HomeVoiceChannelID')
