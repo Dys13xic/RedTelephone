@@ -31,9 +31,6 @@ class Client:
         self.voiceEventHandler.on('session_description', self.on_session_description)
 
     async def run(self):
-        await self.start()
-
-    async def start(self):
         try:
             await self.gateway.connect()
         except asyncio.CancelledError:
