@@ -43,9 +43,9 @@ class CloseCodes():
     DISALLOWED_INTENT = 4014
 
     @staticmethod
-    def restartRequired(closeCode):
-        if closeCode in [CloseCodes.UNKNOWN_ERROR, CloseCodes.DECODE_ERROR, CloseCodes.NOT_AUTHENTICATED, CloseCodes.ALREADY_AUTHENTICATED, 
-                         CloseCodes.INVALID_SEQ, CloseCodes.RATE_LIMITED, CloseCodes.SESSION_TIMED_OUT]:
+    def reconnectable(closeCode):
+        if closeCode not in [CloseCodes.AUTHENTICATION_FAILED, CloseCodes.INVALID_SHARD, CloseCodes.SHARDING_REQUIRED, CloseCodes.INVALID_API_VERSION,
+                             CloseCodes.INVALID_INTENT, CloseCodes.DISALLOWED_INTENT]:
             return False
         else:
             return True
@@ -74,13 +74,17 @@ class Gateway(GatewayConnection):
             except websockets.exceptions.ConnectionClosedOK:
                 self._stop(clean=True)
             except websockets.exceptions.ConnectionClosedError as e:
-                self._stop(clean=CloseCodes.restartRequired(e.code))
+                if CloseCodes.reconnectable(e.code):
+                    self._stop(clean=False)
+                else:
+                    self._stop(clean=True)
+                    break
 
     def _clean(self):
         super()._clean()
         self.sessionID = None
         self.endpoint = DEFAULT_ENDPOINT
-        self.setParams(DEFAULT_PARAMS)
+        self.params = DEFAULT_PARAMS
 
     async def processMsg(self, msgObj):
         match msgObj.op:
@@ -105,28 +109,33 @@ class Gateway(GatewayConnection):
                 if(msgObj.s):
                     self.lastSequence = msgObj.s
 
-                eventType = msgObj.t
                 args = []
-
-                if eventType == "READY":
-                    self.userID = msgObj.d['user']['id']
-                    self.setEndpoint = msgObj.d['resume_gateway_url']
-                    self.sessionID = msgObj.d['session_id']
-
-                if eventType == 'MESSAGE_CREATE':
-                    args = [msgObj.d]
-
-                if eventType == 'VOICE_STATE_UPDATE':
-                    # Track user's current voice channel
-                    self._voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
-                    # Keep bot session ID up-to-date
-                    if msgObj.d['user_id'] == self.userID:
+                match msgObj.t:
+                    case 'READY':
+                        self.userID = msgObj.d['user']['id']
+                        self.setEndpoint = msgObj.d['resume_gateway_url']
                         self.sessionID = msgObj.d['session_id']
 
+                    case 'MESSAGE_CREATE':
+                        args = [msgObj.d]
 
-                if eventType == "VOICE_SERVER_UPDATE":
-                    args = [msgObj.d['token'],
-                             'wss://' + msgObj.d['endpoint']]
+                    case 'VOICE_STATE_UPDATE':
+                        # Track user's current voice channel
+                        self._voiceState[msgObj.d['user_id']] = [msgObj.d['guild_id'], msgObj.d['channel_id']]
+                        # Keep bot session ID up-to-date
+                        if msgObj.d['user_id'] == self.userID:
+                            self.sessionID = msgObj.d['session_id']
+
+                    case "VOICE_SERVER_UPDATE":
+                        args = [msgObj.d['token'],
+                                'wss://' + msgObj.d['endpoint']]
+                    
+                    # TODO verify this is the correct format for a RESUMED event
+                    case 'RESUMED':
+                        self.attempts = 0
+
+                    case _:
+                        pass
 
                 # Pass to relevant event handler
                 await self._eventDispatcher(msgObj.t.lower(), *args)
