@@ -51,7 +51,7 @@ async def main():
                 client.createMessage('`The line is already in use.`', msgData['channel_id'])
                 pass
             else:
-                await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(config.voipAddress))
+                result = await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(config.voipAddress))
                 callLog.record()
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])

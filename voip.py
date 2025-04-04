@@ -147,7 +147,7 @@ class Voip():
         elif isinstance(msg, SipResponse):
             match msg.method:
                 case 'INVITE':
-                    pass
+                    self.activeInvite = transaction
                 case 'BYE':
                     pass
                 case 'CANCEL':
@@ -162,7 +162,15 @@ class Voip():
             print('Unsupported message type')
 
     async def call(self, remoteIP):
+        # TODO remove after testing
+        async def test():
+            await asyncio.sleep(3)
+            await self.endCall()
         try:
+            asyncio.create_task(test())
+            # task = asyncio.create_task(self.sipEndpoint.invite(remoteIP, self.sipPort))
+            # await asyncio.sleep(2)
+            # await self.endCall()
             dialog = await self.sipEndpoint.invite(remoteIP, self.sipPort)
         except InviteError:
             raise
@@ -208,8 +216,10 @@ class Voip():
         self.sessionStarted.set()
 
     def cleanup(self):
-        self.rtpEndpoint.stop()
-        self.rtcpEndpoint.stop()
+        if self.rtpEndpoint:
+            self.rtpEndpoint.stop()
+        if self.rtcpEndpoint:
+            self.rtcpEndpoint.stop()
 
         self.activeInvite = None
         self.activeDialog = None

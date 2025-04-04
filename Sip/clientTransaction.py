@@ -35,14 +35,18 @@ class ClientTransaction(Transaction):
         self.receivedProvisional = asyncio.Event()
         Transaction._transactions[self.id] = self
 
-    @staticmethod
-    def cancelFromInvite(invite):
-        cancel = super().__init__(invite.notifyTu, invite.sendToTransport, 'CANCEL', (invite.localIP, invite.localPort), (invite.remoteIP, invite.remotePort))
-        cancel.branch = invite.branch
-        cancel.fromTag = invite.fromTag
-        cancel.toTag = invite.toTag
-        cancel.callID = invite.callID
-        cancel.sequence = invite.sequence
+    def cancelFromInvite(self):
+        if self.requestMethod != 'INVITE':
+            raise ValueError
+        
+        cancel = ClientTransaction(self.notifyTU, self.sendToTransport, 'CANCEL', (self.localIP, self.localPort), (self.remoteIP, self.remotePort), dialog=None)
+        del Transaction._transactions[cancel.id]
+
+        cancel.branch = self.branch
+        cancel.fromTag = self.fromTag
+        cancel.toTag = self.toTag
+        cancel.callID = self.callID
+        cancel.sequence = self.sequence
         cancel.id = cancel.branch + cancel.requestMethod
         cancel.receivedProvisional = asyncio.Event()
         Transaction._transactions[cancel.id] = cancel

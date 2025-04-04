@@ -46,8 +46,8 @@ class Sip():
             except TimeoutError:
                 pass
 
-        if self.state == 'Proceeding':
-            cancelTransaction = ClientTransaction.cancelFromInvite(inviteTransaction)
+        if inviteTransaction.state == 'Proceeding':
+            cancelTransaction = inviteTransaction.cancelFromInvite()
             await cancelTransaction.nonInvite('CANCEL')
 
     async def bye(self, dialog):
