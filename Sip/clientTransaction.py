@@ -73,6 +73,7 @@ class ClientTransaction(Transaction):
         return SipRequest(method, targetAddress, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders)
 
     async def invite(self):
+        self.dialog = None
         self.state = "Calling"
         request = self.buildRequest("INVITE")
 
@@ -110,33 +111,21 @@ class ClientTransaction(Transaction):
                 # Ack in seperate transaction
                 newTransaction = ClientTransaction(self.notifyTU, self.sendToTransport, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
                 newTransaction.ack(autoClean=True)
+                self.terminate()
 
             elif response.statusCode.isUnsuccessful():
                 self.state = "Completed"
                 await self.notifyTU(response)
                 self.ack()
-
                 # Answer duplicate final responses for 32 seconds before terminating transaction
-                try:
-                    async with asyncio.timeout(Transaction.ANSWER_DUPLICATES_DURATION):
-                        while(True):
-                            response = await self.recvQueue.get()
-                            if response.statusCode.isUnsuccessful():
-                                self.ack()
-                            else:
-                                # TODO Maybe return a malformed response? *at the very least shouldn't cause program exit
-                                print("Invalid status code")
-                                exit()
-                except TimeoutError:
-                    pass
+                asyncio.create_task(self._handleRetransmissions(duration=Transaction.ANSWER_DUPLICATES_DURATION))
 
             else:
                 # Invalid response code TODO generate a malformed request response? *Note: could also do this at a lower level.
                 print("Invalid response code")
+                self.terminate()
                 exit()
 
-        self.terminate()
-        # TODO fix if no response, self.dialog undefined
         return self.dialog
 
     async def nonInvite(self, method):
@@ -173,17 +162,7 @@ class ClientTransaction(Transaction):
                 self.state = 'Completed'
                 await self.notifyTU(response)
                 # Buffer response retransmissions
-                try:
-                    async with asyncio.timeout(Transaction.T4):
-                        while(True):
-                            response = await self.recvQueue.get()
-                except TimeoutError:
-                    pass
-        
-        if method == 'BYE':
-            self.dialog.terminate()
-
-        self.terminate()
+                asyncio.create_task(self._handleRetransmissions(duration=Transaction.T4))
 
     # TODO why is autoclean necessary again? Is there a better way to handle this?
     def ack(self, autoClean=False):
@@ -191,6 +170,19 @@ class ClientTransaction(Transaction):
         self.sendToTransport(request, (self.remoteIP, self.remotePort))
 
         if autoClean:
+            self.terminate()
+
+    async def _handleRetransmissions(self, duration):
+        try:
+            async with asyncio.timeout(duration):
+                while(True):
+                    response = await self.recvQueue.get()
+                    if response.method == 'INVITE':
+                        self.ack()
+        except:
+            raise
+        
+        finally:
             self.terminate()
 
     def _genCallID(self):
