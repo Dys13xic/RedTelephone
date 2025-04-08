@@ -62,6 +62,7 @@ class ServerTransaction(Transaction):
 
         if response.statusCode.isSuccessful():
             self.sendToTransport(response, (self.remoteIP, self.remotePort))
+            self.terminate()
 
         elif response.statusCode.isUnsuccessful():
             # TODO
@@ -69,6 +70,7 @@ class ServerTransaction(Transaction):
             # ACK was never received.  In this case, the server transaction MUST
             # transition to the "Terminated" state, and MUST indicate to the TU
             # that a transaction failure has occurred.
+            # TODO ensure that transaction is terminated on transport error or transaction timeout.
             self.state = 'Completed'
             transactionTimeout = 64 * Transaction.T1
             async with asyncio.timeout(transactionTimeout):
@@ -89,17 +91,17 @@ class ServerTransaction(Transaction):
 
             # Keep transaction alive to absorb ACK messages from final response retransmissions
             self.state = 'Confirmed'
-            await asyncio.sleep(Transaction.T4)
+            asyncio.create_task(self._handleRetransmissions(response=None, duration=Transaction.T4))
 
         # TODO The remote target MUST be set to the URI from the Contact header field of the request.
         # remoteTarget = None
         # self.dialog = Dialog(self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
-        self.terminate()
 
         return self.dialog
         
     async def nonInvite(self):
         # TODO Ensure dialog established (Except for Cancel)
+        # TODO Handle possible transport error
         self.state = 'Trying'
         await self.notifyTU(self.request)
 
@@ -121,13 +123,18 @@ class ServerTransaction(Transaction):
 
         self.state = 'Completed'
         retransmissionTimeout = 64 * Transaction.T1
-        try:
-            async with asyncio.timeout(retransmissionTimeout):
-                while True:
-                    msg = await self.recvQueue.get()
-                    if isinstance(msg, SipRequest):
-                        self.sendToTransport(response, (self.remoteIP, self.remotePort))
-        except TimeoutError:
-            pass
+        asyncio.create_task(self._handleRetransmissions(response, duration=retransmissionTimeout))
 
-        self.terminate()
+
+    async def _handleRetransmissions(self, response, duration):
+        try:
+            async with asyncio.timeout(duration):
+                while(True):
+                    msg = await self.recvQueue.get()
+                    if isinstance(msg, SipRequest) and response:
+                        self.sendToTransport(response, (self.remoteIP, self.remotePort))
+        except:
+            raise
+
+        finally:
+            self.terminate()
