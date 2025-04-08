@@ -1,5 +1,5 @@
 # 1st Party
-from events import EventHandler
+from Utils.events import EventHandler
 from .gateway import Gateway
 from .voice_gateway import VoiceGateway
 from .api import Api

@@ -4,9 +4,9 @@ from Sip.sipMessage import SipRequest, SipResponse, StatusCodes
 from Sip.transaction import Transaction
 from Sip.dialog import Dialog
 from rtp import RtpEndpoint
-from events import EventHandler
-from addressFilter import AddressFilter
-from exceptions import InviteError
+from Utils.events import EventHandler
+from Utils.addressFilter import AddressFilter
+from Sip.exceptions import InviteError
 
 # Standard Library
 import asyncio

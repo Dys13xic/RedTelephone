@@ -5,7 +5,7 @@ from .transaction import Transaction
 from .clientTransaction import ClientTransaction
 from .serverTransaction import ServerTransaction
 from .dialog import Dialog
-from exceptions import InviteError
+from Sip.exceptions import InviteError
 
 # Standard Library
 import asyncio

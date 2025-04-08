@@ -2,10 +2,10 @@
 from Discord.client import Client
 from rtp import RtpEndpoint
 from voip import Voip
-from doNotDisturb import DoNotDisturb
-from callLog import CallLog
-from config import Config
-from exceptions import InviteError
+from Utils.doNotDisturb import DoNotDisturb
+from Utils.callLog import CallLog
+from Utils.config import Config
+from Sip.exceptions import InviteError
 
 # Standard Library
 import sys

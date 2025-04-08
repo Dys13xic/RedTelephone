@@ -1,6 +1,6 @@
 # 1st Party
 from .gateway_connection import GatewayConnection, GatewayMessage
-from events import EventHandler
+from Utils.events import EventHandler
 
 # 3rd Party
 import websockets

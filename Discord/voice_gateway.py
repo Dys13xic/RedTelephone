@@ -1,7 +1,7 @@
 # 1st Party
 from .gateway_connection import GatewayConnection, GatewayMessage
 from .gateway import Gateway
-from events import EventHandler
+from Utils.events import EventHandler
 from rtp import RtpEndpoint
 
 # 3rd Party
