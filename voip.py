@@ -149,9 +149,10 @@ class Voip():
                 case 'INVITE':
                     self.activeInvite = transaction
                 case 'BYE':
-                    pass
+                    transaction.dialog.terminate()
+                    self.cleanup()
                 case 'CANCEL':
-                    pass
+                    self.cleanup()
                 case _:
                     print('Unsupported response method')
 
@@ -181,10 +182,8 @@ class Voip():
     async def endCall(self):
         if self.activeDialog:
             await self.sipEndpoint.bye(self.activeDialog)
-            self.cleanup()
         elif self.activeInvite:
             await self.sipEndpoint.cancel(self.activeInvite)
-            self.cleanup()
 
     async def buildSession(self, dialog):
         remoteIP = dialog.getRemoteIP()
