@@ -5,6 +5,7 @@ from voip import Voip
 from doNotDisturb import DoNotDisturb
 from callLog import CallLog
 from config import Config
+from exceptions import InviteError
 
 # Standard Library
 import sys
@@ -39,11 +40,11 @@ async def main():
         authorID = msgData['author']['id']
         voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
         _, botVoiceChannelID = client.gateway.getVoiceState(client.gateway.userID)
-        if msgData['guild_id'] == voiceServerID and voiceChannelID:
 
+        if msgData['guild_id'] == voiceServerID and voiceChannelID:
             if doNotDisturb.violated():
                 client.createMessage('`The line is not monitored at this hour.`', msgData['channel_id'])
-                
+
             elif callLog.callLimitExceeded():
                 client.createMessage(f'`The hourly call limit was exceeded, you may try again at: {callLog.nextAllowedTime()}`', msgData['channel_id'])
 
@@ -51,8 +52,12 @@ async def main():
                 client.createMessage('`The line is already in use.`', msgData['channel_id'])
                 pass
             else:
-                result = await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(config.voipAddress))
-                callLog.record()
+                try:
+                    result = await asyncio.gather(client.joinVoice(voiceServerID, voiceChannelID), voip.call(config.voipAddress))
+                    callLog.record()
+                except InviteError as e:
+                    client.createMessage('`Failed to initiate a call.`', msgData['channel_id'])
+                    await client.leaveVoice()
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
 
