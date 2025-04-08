@@ -129,8 +129,5 @@ class ServerTransaction(Transaction):
                         self.sendToTransport(response, (self.remoteIP, self.remotePort))
         except TimeoutError:
             pass
-        
-        # if self.request.method == 'BYE':
-        #     self.dialog.terminate()
 
         self.terminate()
