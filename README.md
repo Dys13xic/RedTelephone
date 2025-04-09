@@ -54,16 +54,13 @@ HomeTextChannelID=xxxxxxxxxx
 ```
 
 ## Grandstream Configuration
-1. Enable Pulse Dialing
-> [!NOTE]
-> Only required for rotary phones. 
-
+1. Enable Pulse Dialing if using a rotary phone.
 
 2. Configure Offhook-Auto-Dial
 ```
 *47xxx*xxx*xxx*xxx*5060
 ```
-Enter the bot's IP address and SIP port number (default 5060), replacing all dots ```.``` with an asterisks ```*```
+Enter the bot's IP address and SIP port number (default ```5060```), replacing all dots ```.``` with an asterisks ```*```
 > [!NOTE]
 > To make direct IP calls you must include the prefix ```*47```. 
 
@@ -80,3 +77,4 @@ To dial the hotline join a voice channel and @ the bot in any text channel.
 ```
 
 ## // TODO
+
