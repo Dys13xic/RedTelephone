@@ -17,13 +17,6 @@ from datetime import timedelta, timezone
 LOGGING = True
 
 async def main():
-    # Retrieve the discord bot token
-    try:
-        with open('token.txt', 'r', encoding='utf-8') as f:
-            token = f.readline().strip()
-    except Exception:
-        sys.exit()
-
     # Load configuration settings
     config = Config()
     await config.load()
@@ -32,7 +25,7 @@ async def main():
     doNotDisturb = DoNotDisturb(config.doNotDisturbTimes, tz=currentTimeZone)
     callLog = CallLog(config.hourlyCallLimit, tz=currentTimeZone)
 
-    client = Client(token)
+    client = Client(token=config.discordBotToken)
     voip = Voip(config.publicIP, allowList=[config.voipAddress] + config.voipAllowList)
 
     @client.event

@@ -7,7 +7,7 @@ DEFAULT_CONFIG_FILE = 'config.ini'
 REQUIRED_FIELDS = {
     'Server': ['PublicIP'],
     'VoIP': ['Address'],
-    'Discord': ['HomeGuildID', 'HomeVoiceChannelID', 'HomeTextChannelID'],
+    'Discord': ['BotToken', 'HomeGuildID', 'HomeVoiceChannelID', 'HomeTextChannelID'],
     'Messages': ['Welcome', 'IncomingCall'],
     'Timezone': ['UtcOffset']
 }
@@ -19,6 +19,7 @@ class Config():
         self.publicIP = None
         self.voipAddress = None
         self.voipAllowList = []
+        self.discordBotToken = None
         self.discordGuildID = None
         self.discordVoiceChannelID = None
         self.discordTextChannelID = None
@@ -50,6 +51,7 @@ class Config():
         else:
             self.voipAllowList = []
 
+        self.discordBotToken = config.get('Discord', 'BotToken')
         self.discordGuildID = config.get('Discord', 'HomeGuildID')
         self.discordVoiceChannelID = config.get('Discord', 'HomeVoiceChannelID')
         self.discordTextChannelID = config.get('Discord', 'HomeTextChannelID')
