@@ -36,12 +36,16 @@ async def main():
     voip = Voip(config.publicIP, allowList=[config.voipAddress] + config.voipAllowList)
 
     @client.event
+    async def on_guild_join(msgData):
+        pass
+
+    @client.event
     async def on_user_mention(msgData):
-        authorID = msgData['author']['id']
-        voiceServerID, voiceChannelID = client.gateway.getVoiceState(authorID)
+        voiceServerID, voiceChannelID = await client.fetchVoiceState(msgData['author']['id'], msgData['guild_id'])
+        # TODO replace use of getVoiceState somehow
         _, botVoiceChannelID = client.gateway.getVoiceState(client.gateway.userID)
 
-        if msgData['guild_id'] == voiceServerID and voiceChannelID:
+        if voiceServerID and voiceChannelID:
             if doNotDisturb.violated():
                 client.createMessage('`The line is not monitored at this hour.`', msgData['channel_id'])
 
