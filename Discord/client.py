@@ -28,6 +28,7 @@ class Client:
         # Register listeners
         self.gatewayEventHandler.on('message_create', self.on_message_create)
         self.gatewayEventHandler.on('voice_server_update', self.on_voice_server_update)
+        self.gatewayEventHandler.on('guild_create', self.on_guild_create)
         self.voiceEventHandler.on('session_description', self.on_session_description)
 
     async def run(self):
@@ -49,6 +50,10 @@ class Client:
 
     # Gateway Events
     # ---------------
+    async def on_guild_create(self, data):
+        # TODO keep a file of 
+        await self.eventHandler.dispatch('guild_join', data)
+
     async def on_message_create(self, data):
         userID = self.gateway.userID
         for user in data['mentions']:
@@ -83,3 +88,16 @@ class Client:
     # -----------------
     def createMessage(self, text, channelID):
         asyncio.create_task(self.api.simple_message_create(text, channelID))
+
+    # Fetch Methods
+    # -----------------
+    async def fetchVoiceState(self, userID, guildID):
+        cachedGuildID, cachedVoiceID = self.gateway.getVoiceState(userID)
+        if cachedGuildID and cachedVoiceID:
+            guildID, voiceID = cachedGuildID, cachedVoiceID
+
+        else:
+            guildID, voiceID = await self.api.get_user_voice_state(userID, guildID)
+            self.gateway.setVoiceState(userID, (guildID, voiceID))
+                
+        return guildID, voiceID
