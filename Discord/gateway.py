@@ -65,6 +65,9 @@ class Gateway(GatewayConnection):
 
     def getVoiceState(self, userID):
         return self._voiceState.get(userID, [None, None])
+    
+    def setVoiceState(self, userID, value):
+        self._voiceState[userID] = value
 
     async def connect(self):
         # TODO add exponential backoff?
@@ -99,7 +102,7 @@ class Gateway(GatewayConnection):
                     opcode = OpCodes.RESUME
                 else:
                     # Identify to API
-                    data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9)}
+                    data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9) + (1 << 0)}
                     opcode = OpCodes.IDENTIFY
                     
                 await self.send(GatewayMessage(opcode, data))
@@ -133,6 +136,9 @@ class Gateway(GatewayConnection):
                     # TODO verify this is the correct format for a RESUMED event
                     case 'RESUMED':
                         self.attempts = 0
+
+                    case 'GUILD_CREATE':
+                        args = [msgObj.d]
 
                     case _:
                         pass
