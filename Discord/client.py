@@ -94,7 +94,7 @@ class Client:
     # --------------------
     async def joinVoice(self, guildID, channelID):
         """Join a new voice channel."""
-        await self.gateway.updateVoiceChannel(guildID, channelID)
+        await self.gateway.updateVoiceChannel(channelID, guildID)
         self.voiceGateway = VoiceGateway(self.gateway, guildID, channelID, self.voiceEventHandler.dispatch)
 
     async def leaveVoice(self):
@@ -112,15 +112,15 @@ class Client:
 
     # Fetch Methods
     # -----------------
-    async def fetchVoiceState(self, userID, guildID=None):
+    async def fetchVoiceState(self, userID, targetGuildID=None):
         """Return the current voice state of a user using cached values if they exist or a REST API call."""
-        cachedGuildID, cachedVoiceID = self.gateway.getVoiceState(userID)
-        if cachedGuildID and cachedVoiceID:
-            guildID, voiceID = cachedGuildID, cachedVoiceID
-        elif guildID:
-            guildID, voiceID = await self.api.get_user_voice_state(userID, guildID)
-            self.gateway.setVoiceState(userID, (guildID, voiceID))
-        else:
-            guildID, voiceID = None, None
-                
+        # Check stored voice state
+        guildID, voiceID = self.gateway.getVoiceState(userID)
+
+        # Query API if no stored voice state found and a target guild was specified
+        if targetGuildID and not guildID:
+            guildID, voiceID = await self.api.get_user_voice_state(userID, targetGuildID)
+            if guildID and voiceID:
+                self.gateway.setVoiceState(userID, (guildID, voiceID))
+            
         return guildID, voiceID
