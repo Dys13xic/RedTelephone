@@ -5,6 +5,7 @@ API_URL = 'https://discord.com/api'
 API_VERSION = 10
 
 class Api():
+    """Manage REST API requests and underlying HTTP session."""
     _token: str
     endpoint: str
     headers: dict
@@ -19,14 +20,19 @@ class Api():
 
     # TODO add error handling
     async def simple_message_create(self, text, channelID):
+        """Create a new text channel message"""
         resp = await self.session.post(f'channels/{channelID}/messages', data={'content': text})
 
     async def get_user_voice_state(self, userID, guildID):
+        """Query the current voice state of a user within a guild."""
         async with self.session.get(f'guilds/{guildID}/voice-states/{userID}') as resp:
             result = await resp.json()
             guildID = result.get('guild_id', None)
             channelID = result.get('channel_id', None)
 
         return guildID, channelID
-
-    # TODO add cleanup method to close session
+    
+    async def close(self):
+        await self.session.close()
+        # Wait 250ms for underlying api connection to close (https://docs.aiohttp.org/en/stable/client_advanced.html#client-session).
+        await asyncio.sleep(0.250)
