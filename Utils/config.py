@@ -41,6 +41,7 @@ class Config():
                 if not config.has_option(section, o) or config.get(section, o) == '':
                     raise Exception(f'Mandatory parameter "{o}" missing from [{section}] section in config.ini')
 
+        # Load config properties
         self.publicIP = config.get('Server', 'PublicIP')
         # Retrieve public ip if field set to "auto"
         if self.publicIP == 'auto':
