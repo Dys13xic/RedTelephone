@@ -35,6 +35,7 @@ class Config():
         config = ConfigParser()
         config.read(filename)
 
+        # Ensure mandatory parameters have been included.
         for section, options in REQUIRED_FIELDS.items():
             for o in options:
                 if not config.has_option(section, o) or config.get(section, o) == '':
