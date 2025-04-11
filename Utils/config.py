@@ -13,8 +13,8 @@ REQUIRED_FIELDS = {
 }
 IP_DISCOVERY_ENDPOINT = 'https://checkip.amazonaws.com/'
 
-
 class Config():
+    """Manage user configurable settings."""
     def __init__(self):
         self.publicIP = None
         self.voipAddress = None
@@ -31,6 +31,7 @@ class Config():
         self.doNotDisturbTimes = []
 
     async def load(self, filename=DEFAULT_CONFIG_FILE):
+        """Load configuration file values into object properties."""
         config = ConfigParser()
         config.read(filename)
 
@@ -40,6 +41,7 @@ class Config():
                     raise Exception(f'Mandatory parameter "{o}" missing from [{section}] section in config.ini')
 
         self.publicIP = config.get('Server', 'PublicIP')
+        # Retrieve public ip if field set to "auto"
         if self.publicIP == 'auto':
             self.publicIP = await self._getPublicIP()
 
@@ -63,12 +65,14 @@ class Config():
         self.utcOffset = abs(temp)
 
         self.hourlyCallLimit = config.getint('Call Preferences', 'HourlyCallLimit', fallback=0)
+        # Convert falsey int of 0 to None
         if not self.hourlyCallLimit:
             self.hourlyCallLimit = None
 
-        self.doNotDisturb = json.loads(config.get('Call Preferences', 'DoNotDisturb', fallback='[]'))
+        self.doNotDisturbTimes = json.loads(config.get('Call Preferences', 'DoNotDisturb', fallback='[]'))
 
     async def _getPublicIP(self):
+        """Make a web request to retrieve your public IP."""
         async with ClientSession() as session:
             async with session.get(IP_DISCOVERY_ENDPOINT) as resp:
                 ip = await resp.text()
