@@ -103,11 +103,13 @@ class VoiceGateway(GatewayConnection):
                 break
             except websockets.exceptions.ConnectionClosedError as e:                   
                 if CloseCodes(e.code).reconnectable():
+                    # Try to resume the existing voice session
                     if self.attempts < RECONNECT_ATTEMPTS:
                         self._stop(clean=False)
+                    # Negotiate a new voice session
                     else:
                         self._stop(clean=True)
-                        self.gateway.updateVoiceChannel(self.serverID, self.channelID)
+                        self.gateway.updateVoiceChannel(self.channelID, self.serverID)
                         break
                 else:
                     self._stop(clean=True)
