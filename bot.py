@@ -31,12 +31,12 @@ async def main():
     callLog = CallLog(config.hourlyCallLimit, tz=currentTimeZone)
     
     # Event listeners
-    @client.event
+    @client.eventHandler.event
     async def on_guild_join(msgData):
         """Posts a welcome message in a text channel when a new guild is joined."""
         pass
 
-    @client.event
+    @client.eventHandler.event
     async def on_bot_mention(msgData):
         """When the bot is mentioned in a text channel, join the message author's current voice channel and call the VoIP handset."""
         voiceServerID, voiceChannelID = await client.fetchVoiceState(msgData['author']['id'], msgData['guild_id'])
@@ -62,7 +62,7 @@ async def main():
         else:
             client.createMessage('`User must be in a voice channel to initiate a call.`', msgData['channel_id'])
 
-    @client.event
+    @client.eventHandler.event
     async def on_voice_connection_finalized():
         """Once voice communication to Discord is finalized, answer if the call is incoming and  """
         # TODO improve the appearance of this code and only run when needed (incoming calls)
@@ -74,13 +74,13 @@ async def main():
         await client.voiceGateway.updateSpeaking()
         RtpEndpoint.proxy(client.voiceGateway.rtpEndpoint, voip.rtpEndpoint, yCtrl=voip.rtcpEndpoint)
 
-    @voip.event
+    @voip.eventHandler.event
     async def on_inbound_call():
         """On an incoming call, join the configured discord voice channel and notify guild members with a message."""
         await client.joinVoice(config.discordGuildID, config.discordVoiceChannelID)
         client.createMessage(config.incomingCallMessage, config.discordTextChannelID)
 
-    @voip.event
+    @voip.eventHandler.event
     async def on_inbound_call_ended():
         """When a call is remotely terminated, leave the discord voice channel."""
         await client.leaveVoice()

@@ -41,17 +41,6 @@ class Client:
         finally:
             await self.cleanup()
 
-    def event(self, func):
-        """Register client events through function decorator."""
-        async def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            if asyncio.iscoroutine(result):
-                return await result
-            return result
-        
-        self.eventHandler.on(func.__name__.removeprefix('on_'), wrapper)
-        return wrapper
-    
     async def cleanup(self):
         """Cleanup client connections."""
         if self.voiceGateway:

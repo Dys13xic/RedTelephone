@@ -52,17 +52,6 @@ class Voip():
         self.activeDialog = None
         self.answerCall = asyncio.Event()
         self.sessionStarted = asyncio.Event()
-
-    # Register voip events through function decorator
-    def event(self, func):
-        async def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            if asyncio.iscoroutine(result):
-                return await result
-            return result
-        
-        self.eventHandler.on(func.__name__.removeprefix('on_'), wrapper)
-        return wrapper
     
     async def run(self):
         await asyncio.gather(self.sipEndpoint.run(), self.manageSip(), self.addressFilter.run())
