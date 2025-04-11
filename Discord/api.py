@@ -25,10 +25,13 @@ class Api():
 
     async def get_user_voice_state(self, userID, guildID):
         """Query the current voice state of a user within a guild."""
-        async with self.session.get(f'guilds/{guildID}/voice-states/{userID}') as resp:
-            result = await resp.json()
-            guildID = result.get('guild_id', None)
-            channelID = result.get('channel_id', None)
+        try:
+            async with self.session.get(f'guilds/{guildID}/voice-states/{userID}') as resp:
+                result = await resp.json()
+                guildID = result.get('guild_id', None)
+                channelID = result.get('channel_id', None)
+        except:
+            guildID, channelID = None, None
 
         return guildID, channelID
     
