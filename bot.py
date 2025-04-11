@@ -26,7 +26,7 @@ async def main():
     voip = Voip(config.publicIP, allowList=[config.voipAddress] + config.voipAllowList)
 
     # Initialize utilities
-    currentTimeZone = timezone(config.utcOffsetFactor * timedelta(hours=config.utcOffset))
+    currentTimeZone = timezone(timedelta(hours=config.utcOffset))
     doNotDisturb = DoNotDisturb(config.doNotDisturbTimes, tz=currentTimeZone)
     callLog = CallLog(config.hourlyCallLimit, tz=currentTimeZone)
     
