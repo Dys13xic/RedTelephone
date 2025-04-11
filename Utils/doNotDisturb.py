@@ -3,6 +3,7 @@ from enum import Enum
 
 
 class Weekdays(Enum):
+    """Enum class for days of the week."""
     MON = 0
     TUE = 1
     WED = 2
@@ -12,6 +13,7 @@ class Weekdays(Enum):
     SUN = 6
 
 class DoNotDisturb():
+    """Holds do-not-disturb timeframes and manages validation."""
     timeFrame: tuple
     weekdayOverride: dict
 
@@ -21,14 +23,18 @@ class DoNotDisturb():
         self.tz = tz
 
     def violated(self):
+        """Return whether the current time falls within a do-not-disturb window."""
         currentDateTime = datetime.now(tz=self.tz)
         weekday = Weekdays(currentDateTime.weekday())
 
+        # Override for specific weekdays
         if weekday in self.weekdayOverride:
             for timeFrame in self.weekdayOverride.get(weekday, []):
                 startHr, endHr = timeFrame
                 if startHr <= currentDateTime.hour < endHr:
                     return True
+                
+        # Generic
         else:
             for timeFrame in self.timeFrames:
                 startHr, endHr = timeFrame
