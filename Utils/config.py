@@ -32,10 +32,16 @@ class Config():
 
     async def load(self, filename=DEFAULT_CONFIG_FILE):
         """Load configuration file values into object properties."""
-        config = ConfigParser()
+        # Define custom configparser converters
+        customConverters = {
+            'csv': lambda x: x.split(',') if x else [],
+            'list': lambda x: json.loads(x) if x else []
+        }
+        # Initialize config parser and load DEFAULT_CONFIG_FILE
+        config = ConfigParser(converters=customConverters)
         config.read(filename)
 
-        # Ensure mandatory parameters have been included.
+        # Ensure mandatory parameters have been included
         for section, options in REQUIRED_FIELDS.items():
             for o in options:
                 if not config.has_option(section, o) or config.get(section, o) == '':
@@ -43,35 +49,25 @@ class Config():
 
         # Load config properties
         self.publicIP = config.get('Server', 'PublicIP')
-        # Retrieve public ip if field set to "auto"
-        if self.publicIP == 'auto':
-            self.publicIP = await self._getPublicIP()
-
         self.voipAddress = config.get('VoIP', 'Address')
-        
-        temp = config.get('VoIP', 'AllowList', fallback='')
-        if temp:
-            self.voipAllowList = temp.split(',')
-        else:
-            self.voipAllowList = []
-
+        self.voipAllowList = config.getcsv('VoIP', 'AllowList')
         self.discordBotToken = config.get('Discord', 'BotToken')
         self.discordGuildID = config.get('Discord', 'HomeGuildID')
         self.discordVoiceChannelID = config.get('Discord', 'HomeVoiceChannelID')
         self.discordTextChannelID = config.get('Discord', 'HomeTextChannelID')
         self.welcomeMessage = config.get('Messages', 'Welcome')
         self.incomingCallMessage = config.get('Messages', 'IncomingCall')
-
-        temp = config.getint('Timezone', 'UtcOffset')
-        self.utcOffsetFactor = 1 if temp >= 0 else -1
-        self.utcOffset = abs(temp)
-
+        self.utcOffset = config.getint('Timezone', 'UtcOffset')
         self.hourlyCallLimit = config.getint('Call Preferences', 'HourlyCallLimit', fallback=0)
+        self.doNotDisturbTimes = config.getlist('Call Preferences', 'DoNotDisturb')
+
+        # Retrieve public IP if field set to "auto"
+        if self.publicIP == 'auto':
+            self.publicIP = await self._getPublicIP()
+
         # Convert falsey int of 0 to None
         if not self.hourlyCallLimit:
             self.hourlyCallLimit = None
-
-        self.doNotDisturbTimes = json.loads(config.get('Call Preferences', 'DoNotDisturb', fallback='[]'))
 
     async def _getPublicIP(self):
         """Make a web request to retrieve your public IP."""
