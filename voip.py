@@ -139,7 +139,7 @@ class Voip():
                         await inviteTransaction.recvQueue.put(response)
 
                         self.cleanup()
-                        await self.eventHandler.dispatch('inbound_call_cancelled')
+                        await self.eventHandler.dispatch('inbound_call_ended')
 
                 case _:
                     print('Unsupported request method')
