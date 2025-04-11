@@ -7,12 +7,13 @@ import websockets
 
 # Standard Library
 import asyncio
+from enum import Enum
 
 DEFAULT_ENDPOINT = 'wss://gateway.discord.gg/'
 DEFAULT_PARAMS = '&encoding=json'
 
-
-class OpCodes:
+class OpCodes(Enum):
+    """Enum class of sent/received gateway message OpCodes."""
     EVENT_DISPATCH = 0
     HEARTBEAT = 1
     IDENTIFY = 2
@@ -26,7 +27,8 @@ class OpCodes:
     HEARTBEAT_ACK = 11
     REQUEST_SOUNDBOURD_SOUNDS = 31
 
-class CloseCodes():
+class CloseCodes(Enum):
+    """Enum class of gateway close codes."""
     UNKNOWN_ERROR = 4000
     UNKNOWN_OPCODE = 4001
     DECODE_ERROR = 4002
@@ -42,15 +44,15 @@ class CloseCodes():
     INVALID_INTENT = 4013
     DISALLOWED_INTENT = 4014
 
-    @staticmethod
-    def reconnectable(closeCode):
-        if closeCode not in [CloseCodes.AUTHENTICATION_FAILED, CloseCodes.INVALID_SHARD, CloseCodes.SHARDING_REQUIRED, CloseCodes.INVALID_API_VERSION,
+    def reconnectable(self):
+        if self not in [CloseCodes.AUTHENTICATION_FAILED, CloseCodes.INVALID_SHARD, CloseCodes.SHARDING_REQUIRED, CloseCodes.INVALID_API_VERSION,
                              CloseCodes.INVALID_INTENT, CloseCodes.DISALLOWED_INTENT]:
             return False
         else:
             return True
 
 class Gateway(GatewayConnection):
+    """Manage gateway state and handling of incoming/outgoing gateway messages."""
     userID: int
     sessionID: int
     _eventDispatcher: EventHandler.dispatch
@@ -64,12 +66,15 @@ class Gateway(GatewayConnection):
         self._voiceState = {}
 
     def getVoiceState(self, userID):
+        """Retrieve voice state of specified user."""
         return self._voiceState.get(userID, [None, None])
     
     def setVoiceState(self, userID, value):
+        """Set voice state of specified user."""
         self._voiceState[userID] = value
 
     async def connect(self):
+        """Establish a gateway connection and attempt to reconnect on unexpected websocket close."""
         # TODO add exponential backoff?
         while True:
             try:
@@ -77,20 +82,21 @@ class Gateway(GatewayConnection):
             except websockets.exceptions.ConnectionClosedOK:
                 self._stop(clean=True)
             except websockets.exceptions.ConnectionClosedError as e:
-                if CloseCodes.reconnectable(e.code):
+                if CloseCodes(e.code).reconnectable():
                     self._stop(clean=False)
                 else:
                     self._stop(clean=True)
                     break
 
     def _clean(self):
+        """Revert session specific properties."""
         super()._clean()
         self.sessionID = None
         self.endpoint = DEFAULT_ENDPOINT
-        self.params = DEFAULT_PARAMS
 
     async def processMsg(self, msgObj):
-        match msgObj.op:
+        """Process incoming gateway messages."""
+        match OpCodes(msgObj.op):
             case OpCodes.HELLO:
                 # Update heartbeat interval
                 if("heartbeat_interval" in msgObj.d):
@@ -99,11 +105,11 @@ class Gateway(GatewayConnection):
                 if self.sessionID:
                     # Resume connection
                     data = {'token': self.token, 'session_id': self.sessionID, 'seq': self.lastSequence}
-                    opcode = OpCodes.RESUME
+                    opcode = OpCodes.RESUME.value
                 else:
                     # Identify to API
                     data = {"token": self.token, "properties": {"os": "Linux", "browser": "redTelephone", "device": "redTelephone"}, "intents": (1 << 7) + (1 << 9) + (1 << 0)}
-                    opcode = OpCodes.IDENTIFY
+                    opcode = OpCodes.IDENTIFY.value
                     
                 await self.send(GatewayMessage(opcode, data))
 
@@ -133,7 +139,6 @@ class Gateway(GatewayConnection):
                         args = [msgObj.d['token'],
                                 'wss://' + msgObj.d['endpoint']]
                     
-                    # TODO verify this is the correct format for a RESUMED event
                     case 'RESUMED':
                         self.attempts = 0
 
@@ -162,11 +167,18 @@ class Gateway(GatewayConnection):
                 pass
 
             case _:
-                raise ValueError("Unsupported OP code in gateway msg {}".format(msgObj.op))
+                pass
     
     def genHeartBeat(self):
-        return GatewayMessage(OpCodes.HEARTBEAT, self.lastSequence)
+        """Generate a heartbeat gateway message."""
+        return GatewayMessage(OpCodes.HEARTBEAT.value, self.lastSequence)
     
-    async def updateVoiceChannel(self, guildID, channelID, selfMute=False, selfDeaf=False):
-        data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
-        await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE, data))
+    async def updateVoiceChannel(self, channelID, guildID=None, selfMute=False, selfDeaf=False):
+        """Send a voice state update to the gateway. Try to use the bot's current guild ID if one is not provided."""
+        # Query the bot's current guild ID if not included
+        if not guildID:
+            guildID, _ = self.getVoiceState(self.userID)
+
+        if guildID:
+            data = {'guild_id': guildID, 'channel_id': channelID, 'self_mute': selfMute, 'self_deaf': selfDeaf}
+            await self.send(GatewayMessage(OpCodes.VOICE_STATE_UPDATE.value, data))
