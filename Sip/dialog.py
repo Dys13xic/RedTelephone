@@ -29,9 +29,6 @@ class Dialog():
         _, remoteIP, _ = self.remoteURI.split(':', 2)
         return remoteIP
     
-    def getRtpPorts(self):
-        return self.rtpPort, self.rtcpPort
-    
     def terminate(self):
         del self._dialogs[self.id]
 
