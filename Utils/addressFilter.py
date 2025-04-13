@@ -7,9 +7,9 @@ RESOLVE_INTERVAL = 300
 class AddressFilter():
     """Maintain a list of allowed IPs and domains."""
     def __init__(self, addresses):
-        self._addressSet = set()
-        self._addressMap = {}
-        self.initialized = asyncio.Event()
+        self._addressSet: set = set()
+        self._addressMap: dict = {}
+        self.initialized: asyncio.Event = asyncio.Event()
 
         for address in addresses:
             if _isIP(address):

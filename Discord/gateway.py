@@ -53,17 +53,12 @@ class CloseCodes(Enum):
 
 class Gateway(GatewayConnection):
     """Manage gateway state and handling of incoming/outgoing gateway messages."""
-    userID: int
-    sessionID: int
-    _eventDispatcher: EventHandler.dispatch
-    _voiceState: dict
-
     def __init__(self, token, eventDispatcher):
         super().__init__(token, DEFAULT_ENDPOINT, DEFAULT_PARAMS)
-        self.userID = None
-        self.sessionID = None
-        self._eventDispatcher = eventDispatcher
-        self._voiceState = {}
+        self.userID: int = None
+        self.sessionID: int = None
+        self._eventDispatcher: EventHandler.dispatch = eventDispatcher
+        self._voiceState: dict = {}
 
     def getVoiceState(self, userID):
         """Retrieve voice state of specified user."""

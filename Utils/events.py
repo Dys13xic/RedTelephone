@@ -4,7 +4,7 @@ import asyncio
 class EventHandler:
     """Handle listeners and dispatching of events."""
     def __init__(self):
-        self.events = defaultdict(list)
+        self.events: dict = defaultdict(list)
 
     def on(self, eventName, callback):
         """Register an event listener."""

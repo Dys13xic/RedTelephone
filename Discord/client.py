@@ -9,22 +9,14 @@ import asyncio
 
 class Client:
     """Manage user facing interaction with Discord's Gateway, VoiceGateway, and REST API"""
-    _token: str
-    gatewayEventHandler: EventHandler
-    voiceEventHandler: EventHandler
-    clientEventHandler: EventHandler
-    gateway: Gateway
-    voiceGateway: VoiceGateway
-    api: Api
-
     def __init__(self, token):
-        self._token = token
-        self.eventHandler = EventHandler()
-        self.gatewayEventHandler = EventHandler()
-        self.voiceEventHandler = EventHandler()
-        self.gateway = Gateway(self._token, self.gatewayEventHandler.dispatch)
-        self.voiceGateway = None
-        self.api = Api(token)
+        self._token: str = token
+        self.eventHandler: EventHandler = EventHandler()
+        self.gatewayEventHandler: EventHandler = EventHandler()
+        self.voiceEventHandler: EventHandler = EventHandler()
+        self.gateway: Gateway = Gateway(self._token, self.gatewayEventHandler.dispatch)
+        self.voiceGateway: VoiceGateway = None
+        self.api: Api = Api(token)
         
         # Register listeners
         self.gatewayEventHandler.on('message_create', self.on_message_create)

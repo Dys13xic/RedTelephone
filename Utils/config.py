@@ -16,19 +16,18 @@ IP_DISCOVERY_ENDPOINT = 'https://checkip.amazonaws.com/'
 class Config():
     """Manage user configurable settings."""
     def __init__(self):
-        self.publicIP = None
-        self.voipAddress = None
-        self.voipAllowList = []
-        self.discordBotToken = None
-        self.discordGuildID = None
-        self.discordVoiceChannelID = None
-        self.discordTextChannelID = None
-        self.welcomeMessage = None
-        self.incomingCallMessage = None
-        self.utcOffset = None
-        self.utcOffsetFactor = None
-        self.hourlyCallLimit = None
-        self.doNotDisturbTimes = []
+        self.publicIP: str = None
+        self.voipAddress: str = None
+        self.voipAllowList: list = []
+        self.discordBotToken: str = None
+        self.discordGuildID: str = None
+        self.discordVoiceChannelID: str = None
+        self.discordTextChannelID: str = None
+        self.welcomeMessage: str = None
+        self.incomingCallMessage: str = None
+        self.utcOffset: int = None
+        self.hourlyCallLimit: int = None
+        self.doNotDisturbTimes: list = []
 
     async def load(self, filename=DEFAULT_CONFIG_FILE):
         """Load configuration file values into object properties."""

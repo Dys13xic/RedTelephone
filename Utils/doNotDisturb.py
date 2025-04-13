@@ -14,13 +14,10 @@ class Weekdays(Enum):
 
 class DoNotDisturb():
     """Holds do-not-disturb timeframes and manages validation."""
-    timeFrame: tuple
-    weekdayOverride: dict
-
     def __init__(self,  timeFrames=[], weekdayOverride={}, tz=timezone.utc):
-        self.timeFrames = timeFrames
-        self.weekdayOverride = weekdayOverride
-        self.tz = tz
+        self.timeFrames: tuple = timeFrames
+        self.weekdayOverride: dict = weekdayOverride
+        self.tz: timezone = tz
 
     def violated(self):
         """Return whether the current time falls within a do-not-disturb window."""

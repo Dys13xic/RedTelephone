@@ -5,8 +5,8 @@ class CallLog:
     """Manage a log of the last 'hourlyLimit' calls."""
 
     def __init__(self, hourlyLimit, tz=timezone.utc):
-        self.calls = deque(maxlen=hourlyLimit)
-        self.tz = tz
+        self.calls: deque = deque(maxlen=hourlyLimit)
+        self.tz: timezone = tz
 
     def record(self):
         """Record a new call to the log."""

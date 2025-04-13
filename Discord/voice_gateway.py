@@ -74,24 +74,15 @@ class CloseCodes(Enum):
         
 class VoiceGateway(GatewayConnection):
     """Manage voice gateway state and handling of incoming/outgoing gateway messages."""
-    gateway: Gateway
-    serverID: str
-    channelID: str
-    eventDispatcher: EventHandler.dispatch
-    token: str
-    endpoint: str
-    ssrc: int
-    rtpEndpoint: RtpEndpoint
-
     def __init__(self, gateway, serverID, channelID, eventDispatcher):
-        self.gateway = gateway
-        self.serverID = serverID
-        self.channelID = channelID
-        self.eventDispatcher = eventDispatcher
-        self.token = None
-        self.endpoint = None
-        self.ssrc = None
-        self.rtpEndpoint = None
+        self.gateway: Gateway = gateway
+        self.serverID: str = serverID
+        self.channelID: str = channelID
+        self.eventDispatcher: EventHandler.dispatch = eventDispatcher
+        self.token: str = None
+        self.endpoint: str = None
+        self.ssrc: int = None
+        self.rtpEndpoint: RtpEndpoint = None
         super().__init__(self.token, self.endpoint)
 
     async def connect(self):

@@ -32,25 +32,16 @@ class GatewayMessage:
 
 class GatewayConnection:
     """Manage underlying websocket connection and maintenance."""
-    token: str
-    lastSequence: int
-    endpoint: str
-    params: str
-    _heartbeatInterval: float
-    _sendQueue: asyncio.Queue
-    _tasks: asyncio.Future
-    _connected: asyncio.Event
-
     def __init__(self, token, endpoint, params=''):
-        self.token = token
-        self.lastSequence = None
-        self.endpoint = endpoint
-        self.params = params
-        self._heartbeatInterval = 1
-        self._sendQueue = asyncio.Queue()
-        self._tasks = None
-        self._connected = asyncio.Event()
-        self.attempts = 0
+        self.token: str = token
+        self.lastSequence: int = None
+        self.endpoint: str = endpoint
+        self.params: str = params
+        self._heartbeatInterval: float = 1
+        self._sendQueue: asyncio.Queue = asyncio.Queue()
+        self._tasks: asyncio.Future = None
+        self._connected: asyncio.Event = asyncio.Event()
+        self.attempts: int = 0
 
     def setHeartbeatInterval(self, ms):
         """Set the interval at which to generate heartbeat messages."""

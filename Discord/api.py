@@ -6,7 +6,6 @@ API_VERSION = 10
 
 class Api():
     """Manage REST API requests and underlying HTTP session."""
-
     def __init__(self, token):
         self._token: str = token
         self.endpoint: str = f'{API_URL}/v{str(API_VERSION)}/'
