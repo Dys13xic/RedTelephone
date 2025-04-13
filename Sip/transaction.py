@@ -1,8 +1,23 @@
+# 1st Party
+from .dialog import Dialog
+
+# Standard Library
 import asyncio
 import random
 from collections.abc import Callable
+from enum import Enum
+
+class States(Enum):
+    """Enum class of Transaction states."""
+    TRYING = 0,
+    CALLING = 1,
+    PROCEEDING = 2,
+    COMPLETED = 3,
+    CONFIRMED = 4,
+    TERMINATED = 5
 
 class Transaction:
+    '''Manage the state of a SIP request and corresponding response across many independent messages.'''
     # Type Hints
     notifyTU: Callable
     sendToTransport: Callable
@@ -11,11 +26,10 @@ class Transaction:
     localPort: int
     remoteIP: str
     remotePort: int
-    #dialog:
+    dialog: Dialog
     recvQueue: asyncio.Queue
     id: str
-    # TODO change state to enum
-    state: str
+    state: States
     fromTag: str
     toTag: str
     callID: str
@@ -50,15 +64,15 @@ class Transaction:
         self.sequence = None
             
     def terminate(self):
-        self.state = "Terminated"
+        """Terminate the current session and remove from _transactions."""
+        self.state = States.TERMINATED
         del self._transactions[self.id]
 
     def _genTag(self):
+        """Generates and returns a suitable SIP from/to tag."""
         return hex(int(random.getrandbits(32)))[2:]
 
     @staticmethod
     def getTransaction(id):
-        if id in Transaction._transactions:
-            return Transaction._transactions[id]
-        else:
-            return None
+        """Returns a transaction with matching ID from _transactions or None if one does not exist."""
+        return Transaction._transactions.get(id, None)
