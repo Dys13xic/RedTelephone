@@ -93,10 +93,6 @@ class ServerTransaction(Transaction):
             self.state = 'Confirmed'
             asyncio.create_task(self._handleRetransmissions(response=None, duration=Transaction.T4))
 
-        # TODO The remote target MUST be set to the URI from the Contact header field of the request.
-        # remoteTarget = None
-        # self.dialog = Dialog(self.callID, self.toTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), 0, self.fromTag, "sip:{}:{}".format(self.remoteIP, self.remotePort), remoteTarget, self.sequence)
-
         return self.dialog
         
     async def nonInvite(self):
