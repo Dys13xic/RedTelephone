@@ -6,17 +6,13 @@ API_VERSION = 10
 
 class Api():
     """Manage REST API requests and underlying HTTP session."""
-    _token: str
-    endpoint: str
-    headers: dict
-    session: ClientSession
 
     def __init__(self, token):
-        self._token = token
-        self.endpoint = f'{API_URL}/v{str(API_VERSION)}/'
+        self._token: str = token
+        self.endpoint: str = f'{API_URL}/v{str(API_VERSION)}/'
         # TODO establish proper versioning constants
-        self.headers = {'User-Agent': 'DiscordBot (RedTelephone, 1.0)', 'Authorization': f'Bot {self._token}'}
-        self.session = ClientSession(base_url = self.endpoint, headers=self.headers)
+        self.headers: dict = {'User-Agent': 'DiscordBot (RedTelephone, 1.0)', 'Authorization': f'Bot {self._token}'}
+        self.session: ClientSession = ClientSession(base_url = self.endpoint, headers=self.headers)
 
     # TODO add error handling
     async def simple_message_create(self, text, channelID):
@@ -36,6 +32,7 @@ class Api():
         return guildID, channelID
     
     async def close(self):
+        """Gracefully close the REST API session."""
         await self.session.close()
         # Wait 250ms for underlying api connection to close (https://docs.aiohttp.org/en/stable/client_advanced.html#client-session).
         await asyncio.sleep(0.250)
