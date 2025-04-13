@@ -106,7 +106,7 @@ class ClientTransaction(Transaction):
             if response.statusCode.isSuccessful():
                 await self.notifyTU(response)
                 rtpPort, rtcpPort = SipMessage._parseSDP(response.body)
-                self.dialog = Dialog(self.callID, self.fromTag, "sip:IPCall@{}:{}".format(self.localIP, self.localPort), self.sequence, response.toParams['tag'], "sip:{}:{}".format(self.remoteIP, self.remotePort), response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
+                self.dialog = Dialog(self.callID, self.fromTag, f'sip:IPCall@{self.localIP}:{self.localPort}', self.sequence, response.toParams['tag'], f'sip:{self.remoteIP}:{self.remotePort}', response.additionalHeaders['Contact'].strip('<>'), rtpPort=rtpPort, rtcpPort=rtcpPort)
 
                 # Ack in seperate transaction
                 newTransaction = ClientTransaction(self.notifyTU, self.sendToTransport, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
@@ -189,4 +189,4 @@ class ClientTransaction(Transaction):
         return hex(time.time_ns())[2:] + hex(int(random.getrandbits(32)))[2:]
     
     def _genBranch(self):
-        return Transaction.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + "SIP/2.0/UDP {}:{};".format(self.localIP, self.localPort) + str(self.sequence)).encode()).hexdigest()
+        return Transaction.BRANCH_MAGIC_COOKIE + hashlib.md5((self.toTag + self.fromTag + self.callID + f'SIP/2.0/UDP {self.localIP}:{self.localPort};' + str(self.sequence)).encode()).hexdigest()
