@@ -1,40 +1,33 @@
-# TODO this constant is defined in sip.py (shouldn't need to be in both places)
-RTP_PORT = 5004
-
 class Dialog():
+    """Maintains the state of a SIP dialog across multiple transactions."""
     _dialogs: dict = {}
 
-    def __init__(self, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None, rtpPort = RTP_PORT, rtcpPort = RTP_PORT + 1):
-        # self.state = state
-        # self.role = role
-        self.callID = callID
-        self.localTag = localTag
-        self.remoteTag = remoteTag
-        self.id = self.callID + self.localTag + self.remoteTag
-        self.localSeq = localSeq
-        self.remoteSeq = remoteSeq
-        self.localURI = localURI
-        self.remoteURI = remoteURI
-        self.remoteTarget = remoteTarget
-        #self.secure = secure
+    def __init__(self, callID, localTag, localURI, localSeq, remoteTag, remoteURI, remoteTarget, remoteSeq=None):
+        self.callID: str = callID
+        self.localTag: str = localTag
+        self.remoteTag: str= remoteTag
+        self.id: str = self.callID + self.localTag + self.remoteTag
+        self.localSeq: int = localSeq
+        self.remoteSeq: int  = remoteSeq
+        self.localURI: str = localURI
+        self.remoteURI: str = remoteURI
+        self.remoteTarget: str = remoteTarget
+        self.secure: bool = False
         #self.routeSet = routeSet
-        # TODO should rtpPort and rtcpPort be moved to a different session obj?
-        self.rtpPort = rtpPort
-        self.rtcpPort = rtcpPort
 
+        # Register new Dialog
         Dialog._dialogs[self.id] = self
 
-    # TODO Clean up the way this method operates
     def getRemoteIP(self):
+        """Returns the dialog's remote IP."""
         _, remoteIP, _ = self.remoteURI.split(':', 2)
         return remoteIP
     
     def terminate(self):
+        """Terminate the current dialog and remove from dialogs list."""
         del self._dialogs[self.id]
 
     @staticmethod
     def getDialog(id):
-        if id in Dialog._dialogs:
-            return Dialog._dialogs[id]
-        else:
-            return None
+        """Returns a dialog with matching ID from dialogs list or None if one does not exist."""
+        return Dialog._dialogs.get(id, None)
