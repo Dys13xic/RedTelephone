@@ -1,5 +1,5 @@
 from .sipMessage import SipMessage, SipRequest, SipResponse, StatusCodes
-from .transaction import Transaction
+from .transaction import Transaction, States
 from .dialog import Dialog
 
 import asyncio
@@ -50,7 +50,7 @@ class ServerTransaction(Transaction):
 
     # TODO handle possible transport error during request
     async def invite(self):
-        self.state = 'Proceeding'
+        self.state = States.PROCEEDING
         await self.notifyTU(self.request)
 
         response = self.buildResponse(StatusCodes(100, 'Trying'))
@@ -71,7 +71,7 @@ class ServerTransaction(Transaction):
             # transition to the "Terminated" state, and MUST indicate to the TU
             # that a transaction failure has occurred.
             # TODO ensure that transaction is terminated on transport error or transaction timeout.
-            self.state = 'Completed'
+            self.state = States.COMPLETED
             transactionTimeout = 64 * Transaction.T1
             async with asyncio.timeout(transactionTimeout):
                 msg = None
@@ -90,7 +90,7 @@ class ServerTransaction(Transaction):
                         attempts += 1
 
             # Keep transaction alive to absorb ACK messages from final response retransmissions
-            self.state = 'Confirmed'
+            self.state = States.CONFIRMED
             asyncio.create_task(self._handleRetransmissions(response=None, duration=Transaction.T4))
 
         return self.dialog
@@ -98,7 +98,7 @@ class ServerTransaction(Transaction):
     async def nonInvite(self):
         # TODO Ensure dialog established (Except for Cancel)
         # TODO Handle possible transport error
-        self.state = 'Trying'
+        self.state = States.TRYING
         await self.notifyTU(self.request)
 
         response = None
@@ -109,7 +109,7 @@ class ServerTransaction(Transaction):
                 self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
         if response.statusCode.isProvisional():        
-            self.state = 'Proceeding'
+            self.state = States.PROCEEDING
             while response.statusCode.isProvisional():
                 msg = await self.recvQueue.get()
                 if isinstance(msg, SipResponse):
@@ -117,7 +117,7 @@ class ServerTransaction(Transaction):
                 
                 self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
-        self.state = 'Completed'
+        self.state = States.COMPLETED
         retransmissionTimeout = 64 * Transaction.T1
         asyncio.create_task(self._handleRetransmissions(response, duration=retransmissionTimeout))
 

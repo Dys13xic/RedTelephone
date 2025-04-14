@@ -1,7 +1,7 @@
 # 1st Party Library
 from .sipMessage import SipRequest, SipResponse
 from .transport import Transport
-from .transaction import Transaction
+from .transaction import Transaction, States
 from .clientTransaction import ClientTransaction
 from .serverTransaction import ServerTransaction
 from .dialog import Dialog
@@ -38,7 +38,7 @@ class Sip():
 
     async def cancel(self, inviteTransaction):
         print("Cancelling call.")
-        if inviteTransaction.state == 'Calling':
+        if inviteTransaction.state == States.CALLING:
             transactionTimeout = 64 * Transaction.T1
             try:
                 async with asyncio.timeout(transactionTimeout):
@@ -46,7 +46,7 @@ class Sip():
             except TimeoutError:
                 pass
 
-        if inviteTransaction.state == 'Proceeding':
+        if inviteTransaction.state == States.PROCEEDING:
             cancelTransaction = inviteTransaction.cancelFromInvite()
             await cancelTransaction.nonInvite('CANCEL')
 

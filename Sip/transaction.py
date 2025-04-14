@@ -17,25 +17,7 @@ class States(Enum):
     TERMINATED = 5
 
 class Transaction:
-    '''Manage the state of a SIP request and corresponding response across many independent messages.'''
-    # Type Hints
-    notifyTU: Callable
-    sendToTransport: Callable
-    requestMethod: str
-    localIP: str
-    localPort: int
-    remoteIP: str
-    remotePort: int
-    dialog: Dialog
-    recvQueue: asyncio.Queue
-    id: str
-    state: States
-    fromTag: str
-    toTag: str
-    callID: str
-    branch: str
-    sequence: int
-
+    """Manage the state of a SIP request and corresponding response across many independent messages."""
     # Constants
     BRANCH_MAGIC_COOKIE = "z9hG4bK"
     T1 = 0.5
@@ -47,24 +29,23 @@ class Transaction:
     _transactions: dict = {}
 
     def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog):
-        self.notifyTU = notifyTU
-        self.sendToTransport = sendToTransport
-        self.requestMethod = requestMethod
+        self.notifyTU: Callable = notifyTU
+        self.sendToTransport: Callable = sendToTransport
+        self.requestMethod: str = requestMethod
         self.localIP, self.localPort = localAddress
         self.remoteIP, self.remotePort = remoteAddress
-        self.dialog = dialog
-        self.recvQueue = asyncio.Queue()
-        self.id = None
-        self.state = None
-
-        self.fromTag = None
-        self.toTag = None
-        self.callID = None
-        self.branch = None
-        self.sequence = None
+        self.dialog: Dialog = dialog
+        self.recvQueue: asyncio.Queue = asyncio.Queue()
+        self.id: str = None
+        self.state: States = None
+        self.fromTag: str = None
+        self.toTag: str = None
+        self.callID: str = None
+        self.branch: str = None
+        self.sequence: int = None
             
     def terminate(self):
-        """Terminate the current session and remove from _transactions."""
+        """Terminate the current session and remove from transactions list."""
         self.state = States.TERMINATED
         del self._transactions[self.id]
 
@@ -74,5 +55,5 @@ class Transaction:
 
     @staticmethod
     def getTransaction(id):
-        """Returns a transaction with matching ID from _transactions or None if one does not exist."""
+        """Returns a transaction with matching ID from transactions list or None if one does not exist."""
         return Transaction._transactions.get(id, None)
