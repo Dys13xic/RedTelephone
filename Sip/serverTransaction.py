@@ -1,128 +1,153 @@
+# 1st Party
 from .sipMessage import SipMessage, SipRequest, SipResponse, StatusCodes
 from .transaction import Transaction, States
-from .dialog import Dialog
 
+# Standard Library
 import asyncio
-from collections.abc import Callable
 
 class ServerTransaction(Transaction):
-    notifyTU: Callable
-    sendToTransport: Callable
-    request: SipRequest
-    localAddress: tuple
-    dialog: Dialog
-
+    """Manage the state of a SIP response across many independent messages."""
     def __init__(self, notifyTU, sendToTransport, request, localAddress, dialog=None):
         super().__init__(notifyTU, sendToTransport, request.method, localAddress, request.viaAddress, dialog)
 
+        # Get to tag from existing dialog
         if(self.dialog):
             self.toTag = dialog.remoteTag
         else:
             self.toTag = self._genTag()
         
+        # Retrieve values from request
         self.callID = request.callID
         self.branch = request.viaParams['branch']
         self.fromTag = request.fromParams['tag']
         self.sequence = request.seqNum
-        self.request = request
+        self.request: SipRequest = request
+        
+        # Register new transaction
         self.id = self.branch + self.remoteIP + str(self.remotePort) + self.requestMethod
         Transaction._transactions[self.id] = self
 
     def buildResponse(self, statusCode):
+        """Build a SIP response of the specified status code."""
+        # Configure mandatory headers
         viaAddress = (self.remoteIP, self.remotePort)
-        viaParams = {'branch': self.branch}
         fromURI = f'<sip:IPCall@{self.remoteIP}:{self.remotePort}>'
-        fromParams = {'tag': self.fromTag}
         toURI = f'<sip:{self.localIP}:{self.localPort}>'
+
+        # Configure header parameters
+        viaParams = {'branch': self.branch}
+        fromParams = {'tag': self.fromTag}
         if statusCode == StatusCodes(100, 'Trying'):
             toParams = {}
         else:
             toParams = {'tag': self.toTag}
             
+        # Configure non-mandatory headers
         additionalHeaders = {'Contact': toURI}
+
+        # Configure message body
         if self.request.method == 'INVITE' and statusCode == StatusCodes.OK:
-            body = SipMessage._buildSDP(self.localIP, 5004)
             additionalHeaders['Content-Type'] = 'application/sdp'
+            # TODO replace magic numbers
+            body = SipMessage._buildSDP(self.localIP, 5004)
         else:
             body = ''
             
         return SipResponse(statusCode, self.request.method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders)
 
-    # TODO handle possible transport error during request
     async def invite(self):
+        """Manage response to an Invite Sip request."""
         self.state = States.PROCEEDING
+        # Notify transaction user of request and set inital response to "100 Trying" provisional.
         await self.notifyTU(self.request)
-
         response = self.buildResponse(StatusCodes(100, 'Trying'))
-        while response.statusCode.isProvisional():
-            self.sendToTransport(response, (self.remoteIP, self.remotePort))
-            msg = await self.recvQueue.get()
-            if isinstance(msg, SipResponse):
-                response = msg
 
-        if response.statusCode.isSuccessful():
-            self.sendToTransport(response, (self.remoteIP, self.remotePort))
+        try:
+            # Send provisional responses received from transaction user, on request retransmission send latest provisional response
+            while response.statusCode.isProvisional():
+                self.sendToTransport(response, (self.remoteIP, self.remotePort))
+                msg = await self.recvQueue.get()
+                if isinstance(msg, SipResponse):
+                    response = msg
+
+            if response.statusCode.isSuccessful():
+                self.sendToTransport(response, (self.remoteIP, self.remotePort))
+                self.terminate()
+            elif response.statusCode.isUnsuccessful():
+                self.state = States.COMPLETED
+                transactionTimeout = 64 * Transaction.T1
+
+                # Send response with exponential back-off until an acknowledgment is received or transaction timeout reached
+                async with asyncio.timeout(transactionTimeout):
+                    msg = None
+                    attempts = 0
+                    while not isinstance(msg, SipRequest) or msg.method != 'ACK':
+                        # Send/resend response
+                        self.sendToTransport(response, (self.remoteIP, self.remotePort))
+                        # Cap retransmit interval at T2
+                        retransmitInterval = (pow(2, attempts) * Transaction.T1)
+                        retransmitInterval = min(Transaction.T2, retransmitInterval)
+                        try:
+                            # Wait (up to) the retransmit interval duration for an ACK before re-attempting
+                            async with asyncio.timeout(retransmitInterval):
+                                while not isinstance(msg, SipRequest):
+                                    msg = await self.recvQueue.get()
+                        except TimeoutError:
+                            attempts += 1
+
+                self.state = States.CONFIRMED
+                # Keep transaction alive to absorb ACK messages from final response retransmissions
+                asyncio.create_task(self._handleRetransmissions(response=None, duration=Transaction.T4))
+            else:
+                raise ValueError('Invalid Sip response code.')
+            
+        except (ConnectionError, TimeoutError) as e:
+            # Pass exceptions to the Transaction User and terminate the transaction
+            self.notifyTU(e)
             self.terminate()
-
-        elif response.statusCode.isUnsuccessful():
-            # TODO
-            # If timer H fires while in the "Completed" state, it implies that the
-            # ACK was never received.  In this case, the server transaction MUST
-            # transition to the "Terminated" state, and MUST indicate to the TU
-            # that a transaction failure has occurred.
-            # TODO ensure that transaction is terminated on transport error or transaction timeout.
-            self.state = States.COMPLETED
-            transactionTimeout = 64 * Transaction.T1
-            async with asyncio.timeout(transactionTimeout):
-                msg = None
-                attempts = 0
-                while not isinstance(msg, SipRequest) or msg.method != 'ACK':
-                    self.sendToTransport(response, (self.remoteIP, self.remotePort))
-
-                    retransmitInterval = (pow(2, attempts) * Transaction.T1)
-                    retransmitInterval = min(Transaction.T2, retransmitInterval)
-
-                    try:
-                        async with asyncio.timeout(retransmitInterval):
-                            while not isinstance(msg, SipRequest):
-                                msg = await self.recvQueue.get()
-                    except TimeoutError:
-                        attempts += 1
-
-            # Keep transaction alive to absorb ACK messages from final response retransmissions
-            self.state = States.CONFIRMED
-            asyncio.create_task(self._handleRetransmissions(response=None, duration=Transaction.T4))
 
         return self.dialog
         
     async def nonInvite(self):
-        # TODO Ensure dialog established (Except for Cancel)
-        # TODO Handle possible transport error
+        """Manage response to a Non-Invite Sip request."""
+        # Ensure dialog established for Non-Cancel requests
+        if not self.dialog and self.requestMethod != 'Cancel':
+            raise ValueError('Missing dialog.')
+        
         self.state = States.TRYING
         await self.notifyTU(self.request)
-
         response = None
-        while not response:
-            msg = await self.recvQueue.get()
-            if isinstance(msg, SipResponse):
-                response = msg
-                self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
-        if response.statusCode.isProvisional():        
-            self.state = States.PROCEEDING
-            while response.statusCode.isProvisional():
+        try:
+            # Send response from TU
+            while not response:
                 msg = await self.recvQueue.get()
                 if isinstance(msg, SipResponse):
                     response = msg
-                
-                self.sendToTransport(response, (self.remoteIP, self.remotePort))
+                    self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
-        self.state = States.COMPLETED
-        retransmissionTimeout = 64 * Transaction.T1
-        asyncio.create_task(self._handleRetransmissions(response, duration=retransmissionTimeout))
+            # If response was provisional, await a final response from TU
+            if response.statusCode.isProvisional():        
+                self.state = States.PROCEEDING
+                while response.statusCode.isProvisional():
+                    msg = await self.recvQueue.get()
+                    if isinstance(msg, SipResponse):
+                        response = msg
+                    
+                    self.sendToTransport(response, (self.remoteIP, self.remotePort))
 
+            self.state = States.COMPLETED
+            # Resend final response on request re-transmission
+            retransmissionTimeout = 64 * Transaction.T1
+            asyncio.create_task(self._handleRetransmissions(response, duration=retransmissionTimeout))
+
+        except (ConnectionError, TimeoutError, ValueError) as e:
+            # Pass exceptions to the Transaction User and termiante the transaction
+            self.notifyTU(e)
+            self.terminate()
 
     async def _handleRetransmissions(self, response, duration):
+        """Re-send response on request retransmission and absorb ACK retransmissions for the specified duration before terminating transaction."""
         try:
             async with asyncio.timeout(duration):
                 while(True):
@@ -131,6 +156,5 @@ class ServerTransaction(Transaction):
                         self.sendToTransport(response, (self.remoteIP, self.remotePort))
         except:
             raise
-
         finally:
             self.terminate()
