@@ -114,14 +114,12 @@ class ClientTransaction(Transaction):
             if response.statusCode.isSuccessful():
                 await self.notifyTU(response)
                 self.terminate()
-
             elif response.statusCode.isUnsuccessful():
                 self.state = States.COMPLETED
                 await self.notifyTU(response)
                 self.ack()
                 # Acknowledge duplicate final responses for duration before terminating transaction
                 asyncio.create_task(self._handleRetransmissions(duration=Transaction.ANSWER_DUPLICATES_DURATION))
-
             else:
                 raise ValueError('Invalid SIP response code')
 
