@@ -13,8 +13,8 @@ class ClientTransaction(Transaction):
     def __init__(self, notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog=None, overrideTransaction=None):
         super().__init__(notifyTU, sendToTransport, requestMethod, localAddress, remoteAddress, dialog)
         
+        # Get values from existing dialog
         if(self.dialog):
-            # Get header values from existing dialog
             self.fromTag = self.dialog.localTag
             self.toTag = self.dialog.remoteTag
             self.callID = self.dialog.callID
@@ -23,7 +23,6 @@ class ClientTransaction(Transaction):
                 self.dialog.localSeq += 1
             self.sequence = self.dialog.localSeq
         else:
-            # Generate new header values
             self.fromTag = self._genTag()
             self.toTag = ""
             self.callID = self._genCallID()
@@ -118,7 +117,7 @@ class ClientTransaction(Transaction):
                 self.state = States.COMPLETED
                 await self.notifyTU(response)
                 self.ack()
-                # Acknowledge duplicate final responses for duration before terminating transaction
+                # Acknowledge duplicate final responses before terminating transaction
                 asyncio.create_task(self._handleRetransmissions(duration=Transaction.ANSWER_DUPLICATES_DURATION))
             else:
                 raise ValueError('Invalid SIP response code')
@@ -132,6 +131,7 @@ class ClientTransaction(Transaction):
 
     async def nonInvite(self, method):
         """Manage a SIP non-invite request."""
+        # Ensure dialog established for Non-Cancel requests
         if not self.dialog and method != 'Cancel':
             raise ValueError('Missing dialog.')
 
@@ -163,7 +163,7 @@ class ClientTransaction(Transaction):
             if response.statusCode.isFinal():
                 self.state = States.COMPLETED
                 await self.notifyTU(response)
-                # Buffer response retransmissions for duration before terminating transaction
+                # Buffer response retransmissions before terminating transaction
                 asyncio.create_task(self._handleRetransmissions(duration=Transaction.T4))
             else:
                 raise ValueError('Invalid SIP response code')
