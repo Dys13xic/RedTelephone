@@ -23,7 +23,7 @@ async def main():
 
     # Initialize main services
     client = Client(token=config.discordBotToken)
-    voip = Voip(config.publicIP, allowList=[config.voipAddress] + config.voipAllowList)
+    voip = Voip(config.publicIP, allowList=config.voipAllowList)
 
     # Initialize utilities
     currentTimeZone = timezone(timedelta(hours=config.utcOffset))

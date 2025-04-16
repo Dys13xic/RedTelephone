@@ -64,6 +64,9 @@ class Config():
         if self.publicIP == 'auto':
             self.publicIP = await self._getPublicIP()
 
+        # Allow list includes the VoIP phone address by default
+        self.voipAllowList.append(self.voipAddress)
+
         # Convert falsey int of 0 to None
         if not self.hourlyCallLimit:
             self.hourlyCallLimit = None
