@@ -10,18 +10,12 @@ from Sip.exceptions import InviteError
 # Standard Library
 import asyncio
 
-
 class Sip():
-    transactionUserQueue: asyncio.Queue
-    transport: Transport
-    publicIP: str
-    port: int
-
     def __init__(self, transactionUserQueue, publicIP, port):
-        self.transactionUserQueue = transactionUserQueue
-        self.transport = None
-        self.publicIP = publicIP
-        self.port = port
+        self.transactionUserQueue: asyncio.Queue = transactionUserQueue
+        self.transport: Transport = None
+        self.publicIP: str = publicIP
+        self.port: int = port
 
     async def notifyTU(self, msg):
         await self.transactionUserQueue.put(msg)
