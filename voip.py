@@ -1,7 +1,8 @@
 # 1st Party
 from Sip.sip import Sip
-from Sip.sipMessage import SipRequest, SipResponse, StatusCodes
+from Sip.sipMessage import SipMessage, SipRequest, SipResponse, StatusCodes
 from Sip.transaction import Transaction
+from Sip.clientTransaction import ClientTransaction
 from Sip.dialog import Dialog
 from rtp import RtpEndpoint
 from Utils.events import EventHandler
@@ -19,41 +20,26 @@ DEFAULT_RTCP_PORT = 5005
 TRANSACTION_USER_TIMEOUT = 20
 
 class Voip():
-    sipPort: int
-    rtpPort: int
-    rtcpPort: int
-    sipEndpoint: Sip
-    rtpEndpoint: RtpEndpoint
-    rtcpEndpoint: RtpEndpoint
-    activeInvite: Transaction
-    activeDialog: Dialog 
-    answerCall: asyncio.Event
-    sessionStarted: asyncio.Event
-    eventHandler: EventHandler
-    recvQueue: asyncio.Queue
-
+    """Manages the VoIP service."""
     def __init__(self, publicIP, sipPort=DEFAULT_SIP_PORT, rtpPort=DEFAULT_RTP_PORT, rtcpPort=DEFAULT_RTCP_PORT, allowList=[]):
-        self.sipPort = sipPort
-        self.rtpPort = rtpPort
-
-        if rtcpPort:
-            self.rtcpPort = rtcpPort
-        else:
-            self.rtcpPort = rtpPort + 1
-        
-        self.addressFilter = AddressFilter(allowList)
-        self.eventHandler = EventHandler()
-
-        self.recvQueue = asyncio.Queue()
-        self.sipEndpoint = Sip(self.recvQueue, publicIP, self.sipPort)
-        self.rtpEndpoint = None
-        self.rtcpEndpoint = None
-        self.activeInvite = None
-        self.activeDialog = None
-        self.answerCall = asyncio.Event()
-        self.sessionStarted = asyncio.Event()
+        self.sipPort: int = sipPort
+        self.rtpPort: int = rtpPort
+        self.rtcpPort: int = rtcpPort or rtpPort + 1
+        self.addressFilter: AddressFilter = AddressFilter(allowList)
+        self.eventHandler: EventHandler = EventHandler()
+        self.recvQueue: asyncio.Queue = asyncio.Queue()
+        self.sipEndpoint: Sip = Sip(self.recvQueue, publicIP, self.sipPort)
+        self.rtpEndpoint: RtpEndpoint = None
+        self.rtcpEndpoint: RtpEndpoint = None
+        self.activeInvite: Transaction = None
+        self.activeDialog: Dialog = None
+        self.remoteRtpPort: int = None
+        self.remoteRtcpPort: int = None
+        self.answerCall: asyncio.Event = asyncio.Event()
+        self.sessionStarted: asyncio.Event = asyncio.Event()
     
     async def run(self):
+        """Begin listening for SIP signaling messages and maintain an up-to-date address filter list."""
         await asyncio.gather(self.sipEndpoint.run(), self.manageSip(), self.addressFilter.run())
 
     async def manageSip(self):
@@ -82,7 +68,7 @@ class Voip():
                         # Call relevant event handler
                         await self.eventHandler.dispatch('inbound_call')
 
-                        # Await an event signalling call has been answered
+                        # Await an event signaling the call has been answered
                         async with asyncio.timeout(TRANSACTION_USER_TIMEOUT):
                             try:
                                 await self.answerCall.wait()
@@ -137,6 +123,17 @@ class Voip():
             match msg.method:
                 case 'INVITE':
                     self.activeInvite = transaction
+                    if msg.statusCode.isSuccessful():
+                        # Create a new dialog
+                        transaction.dialog = Dialog(transaction.callID, transaction.fromTag, f'sip:IPCall@{transaction.localIP}:{transaction.localPort}', transaction.sequence, msg.toParams['tag'], f'sip:{transaction.remoteIP}:{transaction.remotePort}', msg.additionalHeaders['Contact'].strip('<>'))
+                        # Get media ports from Session Description Protocol
+                        self.remoteRtpPort, self.remoteRtcpPort = msg.parseSDP()
+                        # TODO this isn't correct w/ respect to the RFC: the UAC Core should handle acking 200 OK directly without creating a new transaction
+                        # Review RFC section 13.2.2.4 for more details
+                        # Ack in seperate transaction
+                        newTransaction = ClientTransaction(self.notifyTU, self.sendToTransport, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
+                        newTransaction.ack(autoClean=True)
+
                 case 'BYE':
                     transaction.dialog.terminate()
                     self.cleanup()
@@ -168,12 +165,8 @@ class Voip():
 
     async def buildSession(self, dialog):
         remoteIP = dialog.getRemoteIP()
-        remoteRtpPort, remoteRtcpPort = dialog.getRtpPorts()
-        if not remoteRtpPort:
-            remoteRtpPort = self.rtpPort
-        if not remoteRtcpPort:
-            remoteRtcpPort = self.rtcpPort
-
+        remoteRtpPort = self.remoteRtpPort or self.rtpPort
+        remoteRtcpPort = self.remoteRtcpPort or self.rtcpPort
         ssrc = Voip.genSSRC()
 
         loop = asyncio.get_event_loop()
@@ -188,7 +181,7 @@ class Voip():
             local_addr=('0.0.0.0', self.rtcpPort),
             remote_addr=(remoteIP, remoteRtcpPort)
             )
-        # TODO why are these outside the if statement, and what happens if the call times out?
+
         self.rtpEndpoint = endpoint
         self.rtcpEndpoint = ctrlEndpoint
         self.activeDialog = dialog
@@ -204,7 +197,9 @@ class Voip():
         self.activeInvite = None
         self.activeDialog = None
         self.rtpEndpoint, self.rtcpEndpoint = None, None
+        self.remoteRtpPort, self.remoteRtcpPort = None, None
 
+        self.answerCall.clear()
         self.sessionStarted.clear()
 
     @staticmethod
