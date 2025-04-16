@@ -1,12 +1,15 @@
 # Standard Library
 from enum import Enum
+from dataclasses import dataclass
 import re
+from datetime import datetime
 
 SIP_DEFAULT_PORT = 5060
 SIP_VERSION = 'SIP/2.0'
 TRANSPORT_PROTOCOL = 'UDP'
 
 class StatusCodes(Enum):
+    """Enum class of Sip response status codes."""
     TRYING = (100, 'Trying')
     RINGING = (180, 'Ringing')
     OK = (200, 'OK')
@@ -26,21 +29,26 @@ class StatusCodes(Enum):
         self.reasonPhrase = reasonPhrase
 
     def isProvisional(self):
+        """Return whether the status code is provisional."""
         return 100 <= self.code <= 199
 
     def isSuccessful(self):
+        """Return whether the status code is successful."""
         return 200 <= self.code <= 299
     
     def isUnsuccessful(self):
+        """Return whether the status code is unsuccessful."""
         return 300 <= self.code <= 699
         
     def isFinal(self):
+        """Return whether the status code is final."""
         return 200 <= self.code <= 699
 
-
 class SipMessageFactory():
+    """Factory class that creates an object of the Sip Message subclass."""
     @staticmethod
-    def createFromStr(message):
+    def fromStr(message):
+        """Creates a Sip request or response based on the input message."""
         if SipMessage.strIsRequest(message):
             return SipRequest.fromStr(message)
         elif SipMessage.strIsResponse(message):
@@ -48,8 +56,9 @@ class SipMessageFactory():
         else:
             raise Exception('Invalid message received')
 
-
+@dataclass
 class SipMessage():
+    """Dataclass representation of a Sip message."""
     method: str
     viaAddress: tuple
     viaParams: dict
@@ -62,30 +71,19 @@ class SipMessage():
     body: str
     additionalHeaders: dict
 
-    def __init__(self, method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body, additionalHeaders):
-        self.method = method
-        self.viaAddress = viaAddress
-        self.viaParams = viaParams
-        self.fromURI = fromURI
-        self.fromParams = fromParams
-        self.toURI = toURI
-        self.toParams = toParams
-        self.callID = callID
-        self.seqNum = seqNum
-        self.body = body
-        self.additionalHeaders = additionalHeaders
-
     @classmethod
     def fromStr(cls, message):
+        """Creates a new Sip message from the specified string. Holds shared parsing logic for child classes."""
         head, body = message.split("\r\n\r\n")
         startLine, *headers = head.split('\r\n')
-        
         additionalHeaders = {}
+
+        # Parse mandatory header URIs and parameters, maintain dict of non-mandatory headers
         for header in headers:
             label, content = header.split(": ", 1)
             match label:
-                # TODO add support for multiple Via headers
                 case 'Via':
+                    # TODO add support for multiple Via headers
                     content = content.removeprefix(f'{SIP_VERSION}/{TRANSPORT_PROTOCOL} ')
                     address, paramStr = content.split(';', 1)
                     ip, port = address.split(':')
@@ -96,9 +94,10 @@ class SipMessage():
                     fromParams = SipMessage._extractParameters(paramStr)
                 case 'To':
                     try:
+                        # If To parameters exist
                         toURI, paramStr = content.split(';', 1)
                         toParams = SipMessage._extractParameters(paramStr)
-                    except Exception:
+                    except ValueError:
                         toURI = content
                         toParams = {}
                 case 'CSeq':
@@ -109,79 +108,73 @@ class SipMessage():
                 case _:
                     additionalHeaders[label] = content
 
+        # Construct and return a Sip message
         return cls(method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body, additionalHeaders)
     
     def __str__(self):
+        """Returns string representation of a Sip message. Holds shared logic for child classes."""
         headers = {}
         msg = ''
-        
         viaIP, viaPort = self.viaAddress
+        # Construct mandatory header contents from URIs and parameters
         headers['Via'] = f'{SIP_VERSION}/{TRANSPORT_PROTOCOL} {viaIP}:{viaPort}' + ''.join(f';{k}={v}' for k, v in self.viaParams.items())
         headers['From'] = self.fromURI + ''.join(f';{k}={v}' for k, v in self.fromParams.items())
         headers['To'] = self.toURI + ''.join(f';{k}={v}' for k, v in self.toParams.items())
         headers['Call-ID'] = self.callID
         headers['CSeq'] = f'{self.seqNum} {self.method}'
+
+        # Include any non-mandatory headers
         for k, v in self.additionalHeaders.items():
             headers[k] = v
         headers["Content-Length"] = len(self.body.encode("utf-8"))
 
+        # Combine header label and content
         for k, v in headers.items():
             msg += f'{k}: {v}\r\n'
-        
+
+        # Include message body
         msg += f'\r\n{self.body}'
         return msg
     
-    def getTransactionID(self):
-        raise NotImplementedError
-
     @staticmethod
     def _extractParameters(header):
+        """Helper method to retrieve key=value parameters from header URIs."""
         hashMap = {}
         parameters = header.split(';')
         for param in parameters:
-            # TODO add support for params without a key=value relationship
+            # TODO add support for parameters without a key=value format
             try:
                 key, value = param.split('=')
                 hashMap[key] = value
-            except:
+            except ValueError:
                 continue
 
         return hashMap
-    
-    # TODO Add comments to regex using re.VERBOSE
-    @staticmethod
-    def strIsRequest(message):
-        return bool(re.match('^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS)\\s+sip:[^\\s]+?\\s+SIP/2\\.0', message))
-    
-    @staticmethod
-    def strIsResponse(message):
-        return bool(re.match('^SIP/2\\.0\\s+\\d{3}\\s+.*', message))
 
-    # TODO fix this up and incorporate into class properly
-    @staticmethod
-    def _parseSDP(messageBody):
+    def getTransactionID(self):
+        """Calculate the Sip messages' transaction ID. To be implemented by child class."""
+        raise NotImplementedError
+
+    def parseSDP(self):
+        """Retrieve RTP and RTCP ports from Session Description Protocol if they exist."""
         rtpPort, rtcpPort = None, None
-        fields = messageBody.split('\r\n')
-
-        # TODO clean up this brutal parsing code
-        for f in fields:
-            if f.startswith('m=audio'):
-                args = f.split(' ')
-                rtpPort = int(args[1])
-
-            elif f.startswith('a=rtcp:'):
-                firstArg, _ = f.split(' ', 1)
-                rtcpPort = int(firstArg[len('a=rtcp:'):])
+        # Regex search for matching media description
+        result = re.find('^m=audio [0-9]+ ')
+        if result:
+            _, rtpPort = result.span().split(' ', 1)
+        # Regex search for matching media attribute
+        result = re.find('^a=rtcp:')
+        if result:
+            _, rtcpPort = result.span().split(':', 1)
 
         return rtpPort, rtcpPort
     
-    # TODO fix this up and incorporate into class properly
     @staticmethod
     def _buildSDP(localAddress, port):
-        #TODO make session id and version unique
-        sessionID = 8000
-        sessionVersion = 8000
-
+        """Generates and returns a suitable SDP body."""
+        # RFC 4566 recommends timestamps for session ID and version (Section 5.2)
+        sessionID = datetime.now().timestamp()
+        sessionVersion = sessionID
         sdp = f"""v=0
 o=Hotline {sessionID} {sessionVersion} IN IP4 {localAddress}\r
 s=SIP Call\r
@@ -191,42 +184,54 @@ m=audio {port} RTP/AVP 120\r
 a=sendrecv\r
 a=rtpmap:120 opus/48000/2\r
 a=ptime:20\r\n"""
-
         return sdp
+    
+    @staticmethod
+    def strIsRequest(message):
+        """Returns whether the specified message is a request."""
+        return bool(re.match('^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS)\\s+sip:[^\\s]+?\\s+SIP/2\\.0', message))
+    
+    @staticmethod
+    def strIsResponse(message):
+        """Returns whether the specified message is a response."""
+        return bool(re.match('^SIP/2\\.0\\s+\\d{3}\\s+.*', message))
 
-
+@dataclass
 class SipRequest(SipMessage):
-    method: str
+    """Dataclass representation of a Sip request."""
     targetAddress: tuple
-
-    def __init__(self, method, targetAddress, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body='', additionalHeaders={}):
-        super().__init__(method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body, additionalHeaders)
-        self.targetAddress = targetAddress
 
     @classmethod
     def fromStr(cls, message):
-        temp = SipMessage.fromStr(message)
+        """Constructs a request object from the specified message."""
+        baseMsg = SipMessage.fromStr(message)
         method, requestURI, _ = message.split(' ', 2)
-        # TODO find a better way to check if port is included (or explore adding comments to regex using re.VERBOSE)
-        if re.match("^sip:(?:[a-zA-Z0-9_.!~*'()-]+)@(?:[a-zA-Z0-9.-]+):\\d", requestURI):
-            _, targetIP, targetPort = requestURI.split(':')
+
+        # Determine if the port is included in request URI
+        result = re.match('(sips?):([^@]+):[0-9]+ SIP\/2.0$')
+        if result:
+            _, targetIP, targetPort = result.span().split(':', 2)
         else:
             _, targetIP = requestURI.split(':', 1)
             targetPort = SIP_DEFAULT_PORT
 
         targetAddress = (targetIP, int(targetPort))
-        return cls(method, targetAddress, temp.viaAddress, temp.viaParams, temp.fromURI, temp.fromParams, temp.toURI, temp.toParams, 
-                   temp.callID, temp.seqNum, temp.body, temp.additionalHeaders)
+        # Construct and return a request obj
+        return cls(method, targetAddress, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
+                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders)
     
     def __str__(self):
-        # TODO what about in instances where the client doesn't supply the port (due to it matching SIP default)?
+        """Returns string representation of a Sip request."""
         targetIP, targetPort = self.targetAddress
         requestLine = f'{self.method} sip:{targetIP}:{targetPort} {SIP_VERSION}\r\n'
+        # Add request line to base message string
         return requestLine + super().__str__()
     
     def getTransactionID(self):
+        """Calculate the Sip requests' corresponding transaction ID."""
         viaIP, viaPort = self.viaAddress
 
+        # Matches ACKs to corresponding INVITE request
         if self.method == 'ACK':
             matchMethod = 'INVITE'
         else:
@@ -234,34 +239,31 @@ class SipRequest(SipMessage):
 
         return self.viaParams['branch'] + viaIP + str(viaPort) + matchMethod
     
-
+@dataclass
 class SipResponse(SipMessage):
+    """Dataclass representation of a Sip response."""
     statusCode: StatusCodes
-
-    def __init__(self, statusCode, method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body='', additionalHeaders={}):
-        super().__init__(method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, callID, seqNum, body, additionalHeaders)
-        self.statusCode = statusCode
 
     @classmethod
     def fromStr(cls, message):
-        temp = SipMessage.fromStr(message)
+        """Constructs a response object from the specified message."""
+        baseMsg = SipMessage.fromStr(message)
+
+        # Construct a matching StatusCode enum
         statusLine, _ = message.split('\r\n', 1)
         version, code, reasonPhrase = statusLine.split(' ', 2)
         statusCode = StatusCodes(int(code), reasonPhrase)
-        
-        return cls(statusCode, temp.method, temp.viaAddress, temp.viaParams, temp.fromURI, temp.fromParams, temp.toURI, temp.toParams, temp.callID, temp.seqNum, temp.body, temp.additionalHeaders)
-    
-    # @classmethod
-    # def fromRequest(cls, request, responseCode, toTag=None, body='', additionalHeaders={}):
-    #     # TODO what about 200 OK response where a body is expected?
-    #     toParamsCopy = request.fromParams.copy()
-    #     if toTag:
-    #         toParamsCopy['tag'] = toTag
-    #     return cls(responseCode, request.method, request.viaAddress, request.viaParams, request.fromURI, request.fromParams, request.toURI, toParamsCopy, request.callID, request.seqNum, body, additionalHeaders)    
-    
+
+        # Construct and return a response obj
+        return cls(statusCode, baseMsg.method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
+                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders)
+
     def __str__(self):
+        """Returns string representation of a Sip response."""
         statusLine = f'{SIP_VERSION} {self.statusCode.code} {self.statusCode.reasonPhrase}\r\n'
+        # Add status line to base message string
         return statusLine + super().__str__()
     
     def getTransactionID(self):
+        """Calculate the Sip response's corresponding transaction ID."""
         return self.viaParams['branch'] + self.method
