@@ -5,59 +5,16 @@ from .transaction import Transaction, States
 from .clientTransaction import ClientTransaction
 from .serverTransaction import ServerTransaction
 from .dialog import Dialog
-from Sip.exceptions import InviteError
+from .messageHandler import MessageHandler
+from .userAgent import UserAgent
 
 # Standard Library
 import asyncio
 
-class Sip():
-    def __init__(self, transactionUserQueue, publicIP, port):
-        self.transactionUserQueue: asyncio.Queue = transactionUserQueue
-        self.transport: Transport = None
-        self.publicIP: str = publicIP
-        self.port: int = port
-
-    async def notifyTU(self, msg):
-        await self.transactionUserQueue.put(msg)
-
-    async def invite(self, address, port):
-        print("Attempting to initiate a call with {}:{}".format(address, port))
-        transaction = ClientTransaction(self.notifyTU, self.transport.send, "INVITE", (self.transport.ip, self.port), (address, port))
-        dialog = await transaction.invite()
-        
-        if not dialog:
-            raise InviteError('Failed to establish a dialog.')
-        
-        return dialog
-
-    async def cancel(self, inviteTransaction):
-        print("Cancelling call.")
-        if inviteTransaction.state == States.CALLING:
-            transactionTimeout = 64 * Transaction.T1
-            try:
-                async with asyncio.timeout(transactionTimeout):
-                    await inviteTransaction.receivedProvisional.wait()
-            except TimeoutError:
-                pass
-
-        if inviteTransaction.state == States.PROCEEDING:
-            cancelTransaction = inviteTransaction.cancelFromInvite()
-            await cancelTransaction.nonInvite('CANCEL')
-
-    async def bye(self, dialog):
-        print("Ending call")
-        _, remoteIP, remotePort = dialog.remoteTarget.strip('<>').split(':', 2)
-        # TODO add proper regex instead of this hack for removing username
-        try:
-            username, remoteIP = remoteIP.split('@')
-        except:
-            pass
-
-        remotePort = int(remotePort)
-
-        transaction = ClientTransaction(self.notifyTU, self.transport.send, "BYE", (self.transport.ip, self.port), (remoteIP, remotePort), dialog)
-        byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
-        await byeTask
+class Sip(UserAgent):
+    def __init__(self, publicAddress):
+        self.messageHandler: MessageHandler = MessageHandler(userAgent=self)
+        super.__init__(self.transport, publicAddress)
 
     async def handleMsg(self, msg, addr):
         # Pass message to matching transaction if one exists
@@ -77,7 +34,7 @@ class Sip():
                 key = msg.callID + msg.toParams['tag'] + msg.fromParams['tag']
                 dialog = Dialog.getDialog(key)
 
-            transaction = ServerTransaction(self.notifyTU, self.transport.send, msg, (self.transport.ip, self.port), dialog)
+            transaction = ServerTransaction(self.notifyTU, self.transport.send, msg, (self.publicIP, self.publicPort), dialog)
             if msg.method == 'INVITE':
                 # TODO handle re-invite
                 asyncio.create_task(transaction.invite())
@@ -87,6 +44,7 @@ class Sip():
     async def run(self):
         loop = asyncio.get_event_loop()
         _, self.transport = await loop.create_datagram_endpoint(
-        lambda: Transport(self.publicIP, self.port, handleMsgCallback=self.handleMsg),
-        local_addr=("0.0.0.0", self.port),
+        lambda: Transport(self.publicIP, handleMsgCallback=self.messageHandler.route),
+        local_addr=("0.0.0.0", self.publicPort),
         )
+        
