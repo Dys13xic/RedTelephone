@@ -45,7 +45,12 @@ class Voip():
     async def manageSip(self):
         while True:
             msg = await self.recvQueue.get()
-            asyncio.create_task(self.processMsg(msg))
+            if isinstance(msg, Exception):
+                raise msg
+            elif isinstance(msg, SipMessage):
+                asyncio.create_task(self.processMsg(msg))
+            else:
+                pass
 
     async def processMsg(self, msg):
         transactionID = msg.getTransactionID()
