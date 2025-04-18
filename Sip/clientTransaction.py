@@ -77,7 +77,7 @@ class ClientTransaction(Transaction):
         else:
             body = ''
 
-        return SipRequest(method, targetAddress, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders)
+        return SipRequest(method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders, targetAddress)
 
     async def invite(self):
         """Manage a SIP invite request."""
@@ -124,7 +124,7 @@ class ClientTransaction(Transaction):
 
         except (ConnectionError, TimeoutError, ValueError) as e:
             # Pass exceptions to the Transaction User and terminate the transaction
-            self.notifyTU(e)
+            await self.notifyTU(e)
             self.terminate()
 
         return self.dialog
@@ -170,7 +170,7 @@ class ClientTransaction(Transaction):
 
         except (ConnectionError, TimeoutError, ValueError) as e:
             # Pass exceptions to the Transaction User and terminate the transaction
-            self.notifyTU(e)
+            await self.notifyTU(e)
             self.terminate()
 
     def ack(self, autoClean=False):
