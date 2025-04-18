@@ -154,6 +154,9 @@ class SipMessage():
     def getTransactionID(self):
         """Calculate the Sip messages' transaction ID. To be implemented by child class."""
         raise NotImplementedError
+    
+    def getDialogID(self):
+        """Calculate the Sip messages' dialog ID. To be implemented by child class."""
 
     def parseSDP(self):
         """Retrieve RTP and RTCP ports from Session Description Protocol if they exist."""
@@ -217,8 +220,8 @@ class SipRequest(SipMessage):
 
         targetAddress = (targetIP, int(targetPort))
         # Construct and return a request obj
-        return cls(method, targetAddress, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
-                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders)
+        return cls(method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
+                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders, targetAddress)
     
     def __str__(self):
         """Returns string representation of a Sip request."""
@@ -239,6 +242,13 @@ class SipRequest(SipMessage):
 
         return self.viaParams['branch'] + viaIP + str(viaPort) + matchMethod
     
+    def getDialogID(self):
+        """Calculate the Sip request's dialog ID."""
+        if 'Tag' in self.toParams:
+            return self.callID + self.fromParams['Tag'] + self.toParams['Tag']
+        
+        return None
+    
 @dataclass
 class SipResponse(SipMessage):
     """Dataclass representation of a Sip response."""
@@ -255,8 +265,8 @@ class SipResponse(SipMessage):
         statusCode = StatusCodes(int(code), reasonPhrase)
 
         # Construct and return a response obj
-        return cls(statusCode, baseMsg.method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
-                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders)
+        return cls(baseMsg.method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
+                   baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders, statusCode)
 
     def __str__(self):
         """Returns string representation of a Sip response."""
@@ -267,3 +277,10 @@ class SipResponse(SipMessage):
     def getTransactionID(self):
         """Calculate the Sip response's corresponding transaction ID."""
         return self.viaParams['branch'] + self.method
+    
+    def getDialogID(self):
+        """Calculate the Sip response's dialog ID."""
+        if 'Tag' in self.toParams:
+            return self.callID + self.toParams['Tag'] + self.fromParams['Tag']
+        
+        return None
