@@ -53,7 +53,7 @@ class ServerTransaction(Transaction):
         else:
             body = ''
             
-        return SipResponse(statusCode, self.request.method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders)
+        return SipResponse(self.request.method, viaAddress, viaParams, fromURI, fromParams, toURI, toParams, self.callID, self.sequence, body, additionalHeaders, statusCode)
 
     async def invite(self):
         """Manage response to an Invite Sip request."""
@@ -103,7 +103,7 @@ class ServerTransaction(Transaction):
             
         except (ConnectionError, TimeoutError) as e:
             # Pass exceptions to the Transaction User and terminate the transaction
-            self.notifyTU(e)
+            await self.notifyTU(e)
             self.terminate()
 
         return self.dialog
@@ -143,7 +143,7 @@ class ServerTransaction(Transaction):
 
         except (ConnectionError, TimeoutError, ValueError) as e:
             # Pass exceptions to the Transaction User and termiante the transaction
-            self.notifyTU(e)
+            await self.notifyTU(e)
             self.terminate()
 
     async def _handleRetransmissions(self, response, duration):
