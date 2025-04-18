@@ -6,14 +6,14 @@ from typing import Callable
 from .sipMessage import SipMessageFactory
 
 class Transport():
-    def __init__(self, publicIP, port, handleMsgCallback):
-        self.ip: str = publicIP
+    """Manage UDP transport for sending/receiving of SIP messages."""
+    def __init__(self, port, handleMsgCallback):
         self.port: int = port
         self.handleMsgCallback: Callable = handleMsgCallback
         self._transport: asyncio.DatagramTransport = None
 
     def connection_made(self, transport):
-        """Called on UDP transport established"""
+        """Configure transport on connection established."""
         self._transport = transport
 
     def send(self, msgObj, addr):
@@ -23,21 +23,22 @@ class Transport():
         print(data)
 
     def datagram_received(self, data, addr):
+        """Convert datagram to Sip message and pass to callback function."""
         try:
             msg = data.decode('utf-8')
-            msgObj = SipMessageFactory.fromStr(msg, addr)
+            msgObj = SipMessageFactory.fromStr(msg)
             asyncio.create_task(self.handleMsgCallback(msgObj, addr))
         except Exception as e:
             pass
 
     def error_received(e):
-        """Called on UDP transport error. Log event."""
+        """Log transport error."""
         pass
 
     def connection_lost(e):
-        """Called on UDP transport connection lost. Log event."""
+        """Log connection lost."""
         pass
 
     def stop(self):
-        """Gracefully shutdown UDP transport."""
+        """Gracefully shutdown transport."""
         self._transport.close()
