@@ -162,13 +162,13 @@ class SipMessage():
         """Retrieve RTP and RTCP ports from Session Description Protocol if they exist."""
         rtpPort, rtcpPort = None, None
         # Regex search for matching media description
-        result = re.find('^m=audio [0-9]+ ')
-        if result:
-            _, rtpPort = result.span().split(' ', 1)
+        match = re.match('^m=audio (?P<port>[0-9]+)', self.body)
+        if match and 'port' in match.groupdict():
+            rtpPort = int(match.group('port'))
         # Regex search for matching media attribute
-        result = re.find('^a=rtcp:')
-        if result:
-            _, rtcpPort = result.span().split(':', 1)
+        match = re.match('^a=rtcp:(?P<port>[0-9]+)', self.body)
+        if match and 'port' in match.groupdict():
+            rtcpPort = int(match.group('port'))
 
         return rtpPort, rtcpPort
     
@@ -208,15 +208,18 @@ class SipRequest(SipMessage):
     def fromStr(cls, message):
         """Constructs a request object from the specified message."""
         baseMsg = SipMessage.fromStr(message)
-        method, requestURI, _ = message.split(' ', 2)
+        method, requestURI, version = message.split(' ', 2)
 
         # Determine if the port is included in request URI
-        result = re.match('(sips?):([^@]+):[0-9]+ SIP\/2.0$')
-        if result:
-            _, targetIP, targetPort = result.span().split(':', 2)
+        match = re.match('sips?:(?P<ip>[^@:]+)(?P<port>:[0-9]+)?', requestURI)
+        if match and 'ip' in match.groupdict():
+            targetIP = match.group('ip')
+            if 'port' in match.groupdict(): 
+                targetPort = int(match.group('port'))
+            else:
+                targetPort = SIP_DEFAULT_PORT
         else:
-            _, targetIP = requestURI.split(':', 1)
-            targetPort = SIP_DEFAULT_PORT
+            raise ValueError('Invalid Request URI.')
 
         targetAddress = (targetIP, int(targetPort))
         # Construct and return a request obj
