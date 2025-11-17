@@ -20,7 +20,7 @@ class AddressFilter():
     async def run(self):
         """Retrieve domain IP addresses every RESOLVE_INTERVAL seconds."""
         while self._addressMap:
-            await self.resolveDomains() 
+            await self.resolveDomains()
             await asyncio.sleep(RESOLVE_INTERVAL)
 
     async def resolveDomains(self):
