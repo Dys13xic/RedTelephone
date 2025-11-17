@@ -66,21 +66,21 @@ async def main():
     async def on_voice_connection_finalized():
         """Once voice communication to Discord is finalized, answer if the call is incoming and  """
         # TODO improve the appearance of this code and only run when needed (incoming calls)
-        voip.answerCall.set()
+        voip.answerIncomingCall()
 
         # Wait for an active VoIP session before proxying traffic
-        await voip.sessionStarted.wait()
+        await voip.waitForSession()
         # Notify voice gateway that audio packets are starting to be sent
         await client.voiceGateway.updateSpeaking()
         RtpEndpoint.proxy(client.voiceGateway.rtpEndpoint, voip.rtpEndpoint, yCtrl=voip.rtcpEndpoint)
 
-    @voip.eventHandler.event
+    @voip.sipEndpoint.eventHandler.event
     async def on_inbound_call():
         """On an incoming call, join the configured discord voice channel and notify guild members with a message."""
         await client.joinVoice(config.discordGuildID, config.discordVoiceChannelID)
         client.createMessage(config.incomingCallMessage, config.discordTextChannelID)
 
-    @voip.eventHandler.event
+    @voip.sipEndpoint.eventHandler.event
     async def on_inbound_call_ended():
         """When a call is remotely terminated, leave the discord voice channel."""
         await client.leaveVoice()
