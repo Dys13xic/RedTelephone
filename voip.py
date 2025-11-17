@@ -30,7 +30,7 @@ class Voip(SessionManager):
         self.rtcpEndpoint: RtpEndpoint = None
     
     async def run(self):
-        await self.sipEndpoint.run()
+        await asyncio.gather(self.sipEndpoint.run(), self.addressFilter.run())
     
     async def call(self, remoteIP):
         try:
