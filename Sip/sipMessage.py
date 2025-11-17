@@ -211,20 +211,34 @@ class SipRequest(SipMessage):
         method, requestURI, version = message.split(' ', 2)
 
         # Determine if the port is included in request URI
-        match = re.match('sips?:(?P<ip>[^@:]+)(?P<port>:[0-9]+)?', requestURI)
+        match = re.match('sips?:(?P<user>.*@)?(?P<ip>[^@: ]+)(:?)(?P<port>[0-9]+)?', requestURI)
         if match and 'ip' in match.groupdict():
             targetIP = match.group('ip')
-            if 'port' in match.groupdict(): 
-                targetPort = int(match.group('port'))
-            else:
-                targetPort = SIP_DEFAULT_PORT
+            targetPort = int(match.group('port')) if 'port' in match.groupdict() else SIP_DEFAULT_PORT
         else:
             raise ValueError('Invalid Request URI.')
 
-        targetAddress = (targetIP, int(targetPort))
+        targetAddress = (targetIP, targetPort)
         # Construct and return a request obj
         return cls(method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
                    baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders, targetAddress)
+
+    @classmethod
+    def ackFromResponse(cls, response):
+        """Constructs an ack request object from an existing response object."""
+        if 'Contact' not in response.additionalHeaders:
+            raise ValueError('Response missing Contact header.')
+
+        match = re.match('<sips?:(?P<user>.*@)?(?P<ip>[^@:]+):(?P<port>[0-9]+)?>', response.additionalHeaders['Contact'])
+        if match and 'ip' in match.groupdict():
+            targetIP = match.group('ip')
+            targetPort = int(match.group('port')) if 'port' in match.groupdict() else SIP_DEFAULT_PORT 
+            targetAddress = (targetIP, targetPort)
+        else:
+            raise ValueError('Invalid Contact URI')
+
+        return cls('ACK', response.viaAddress, response.viaParams, response.fromURI, response.fromParams, response.toURI, response.toParams,
+                   response.callID, response.seqNum, "", response.additionalHeaders, targetAddress)
     
     def __str__(self):
         """Returns string representation of a Sip request."""
@@ -247,8 +261,8 @@ class SipRequest(SipMessage):
     
     def getDialogID(self):
         """Calculate the Sip request's dialog ID."""
-        if 'Tag' in self.toParams:
-            return self.callID + self.fromParams['Tag'] + self.toParams['Tag']
+        if 'tag' in self.toParams:
+            return self.callID + self.toParams['tag'] + self.fromParams['tag']
         
         return None
     
@@ -270,6 +284,12 @@ class SipResponse(SipMessage):
         # Construct and return a response obj
         return cls(baseMsg.method, baseMsg.viaAddress, baseMsg.viaParams, baseMsg.fromURI, baseMsg.fromParams, baseMsg.toURI, baseMsg.toParams, 
                    baseMsg.callID, baseMsg.seqNum, baseMsg.body, baseMsg.additionalHeaders, statusCode)
+        
+    @classmethod
+    def fromRequest(cls, request, statusCode):
+        """Constructs a response object from an existing request object."""
+        return cls(request.method, request.viaAddress, request.viaParams, request.fromURI, request.fromParams, request.toURI, request.toParams,
+                   request.callID, request.seqNum, request.body, request.additionalHeaders, statusCode)
 
     def __str__(self):
         """Returns string representation of a Sip response."""
@@ -283,7 +303,7 @@ class SipResponse(SipMessage):
     
     def getDialogID(self):
         """Calculate the Sip response's dialog ID."""
-        if 'Tag' in self.toParams:
-            return self.callID + self.toParams['Tag'] + self.fromParams['Tag']
+        if 'tag' in self.toParams:
+            return self.callID + self.fromParams['tag'] + self.toParams['tag']
         
         return None
