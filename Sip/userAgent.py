@@ -5,7 +5,9 @@ from .transaction import Transaction, States
 from .clientTransaction import ClientTransaction
 from .serverTransaction import ServerTransaction
 from .dialog import Dialog
-from Sip.exceptions import InviteError
+from .exceptions import InviteError
+from Utils.events import EventHandler
+from .sessionManager import SessionManager
 
 # Standard Library
 import asyncio
@@ -13,15 +15,17 @@ import asyncio
 TRANSACTION_USER_TIMEOUT = 20
 
 class UserAgent:
-    def __init__(self, transport, publicAddress):
+    def __init__(self, transport, publicAddress, sessionManager):
         self.transport: Transport = transport
         self.publicIP: str
         self.publicPort: int
         self.publicIP, self.publicPort = publicAddress
+        self.eventHandler: EventHandler = EventHandler()
+        self.sessionManager: SessionManager = sessionManager
 
     async def invite(self, address, port):
         print("Attempting to initiate a call with {}:{}".format(address, port))
-        transaction = ClientTransaction(self.handle, self.transport.send, "INVITE", (self.publicIP, self.publicPort), (address, port))
+        transaction = ClientTransaction(self.notify, self.transport.send, "INVITE", (self.publicIP, self.publicPort), (address, port))
         dialog = await transaction.invite()
         
         if not dialog:
@@ -54,13 +58,22 @@ class UserAgent:
 
         remotePort = int(remotePort)
 
-        transaction = ClientTransaction(self.handle, self.transport.send, "BYE", (self.publicIP, self.publicPort), (remoteIP, remotePort), dialog)
+        transaction = ClientTransaction(self.notify, self.transport.send, "BYE", (self.publicIP, self.publicPort), (remoteIP, remotePort), dialog)
         byeTask = asyncio.create_task(transaction.nonInvite('BYE'))
         await byeTask
 
+    async def createTransaction(self, msg):
+        dialog = Dialog.getDialog(msg.getDialogID())
+        transaction = ServerTransaction(self.notify, self.transport.send, msg, (self.publicIP, self.publicPort), dialog)
+        transactionID = transaction.id
+        
+        if msg.method == 'INVITE':
+            await transaction.invite()
+        else:
+            await transaction.nonInvite()
 
 
-    async def handle(self, msg, addr):
+    async def notify(self, msg):
         transactionID = msg.getTransactionID()
         transaction = Transaction.getTransaction(transactionID)
 
@@ -69,12 +82,12 @@ class UserAgent:
                 case 'INVITE':
                     viaIP, viaPort = msg.viaAddress
                     
-                    if self.activeInvite or self.activeDialog:
+                    if self.sessionManager.busy():
                         response = transaction.buildResponse(StatusCodes(486, 'Busy Here'))
                         await transaction.recvQueue.put(response)
 
-                    elif viaIP in self.addressFilter.getAddresses():
-                        self.activeInvite = transaction
+                    elif viaIP in self.sessionManager.addressFilter.getAddresses():
+                        self.sessionManager.activeInvite = transaction
                         response = transaction.buildResponse(StatusCodes(180, 'Ringing'))
                         await transaction.recvQueue.put(response)
 
@@ -84,8 +97,7 @@ class UserAgent:
                         # Await an event signaling the call has been answered
                         async with asyncio.timeout(TRANSACTION_USER_TIMEOUT):
                             try:
-                                await self.answerCall.wait()
-                                self.answerCall.clear()
+                                await self.sessionManager.waitForAnswer()
                             except TimeoutError:
                                 response = transaction.buildResponse(StatusCodes(504, 'Server Time-out'))
                                 transaction.recvQueue.put(response)
@@ -98,7 +110,7 @@ class UserAgent:
                         transaction.dialog = Dialog(transaction.callID, transaction.toTag, f"sip:IPCall@{transaction.localIP}:{transaction.localPort}", 0, transaction.fromTag, f"sip:{transaction.remoteIP}:{transaction.remotePort}", remoteTarget, transaction.sequence)
 
                         await transaction.recvQueue.put(response)
-                        await self.buildSession(transaction.dialog)
+                        await self.sessionManager.buildSession(transaction.dialog)
 
                         # Call relevant event handler
                         await self.eventHandler.dispatch('inbound_call_accepted')
@@ -112,7 +124,7 @@ class UserAgent:
                     await transaction.recvQueue.put(response)
                     
                     transaction.dialog.terminate()
-                    self.cleanup()
+                    self.sessionManager.cleanup()
                     await self.eventHandler.dispatch('inbound_call_ended')
 
                 case 'CANCEL':
@@ -126,8 +138,11 @@ class UserAgent:
                         response = inviteTransaction.buildResponse(StatusCodes(487, 'Request Terminated'))
                         await inviteTransaction.recvQueue.put(response)
 
-                        self.cleanup()
+                        self.sessionManager.cleanup()
                         await self.eventHandler.dispatch('inbound_call_ended')
+
+                case 'ACK':
+                    pass
 
                 case _:
                     print('Unsupported request method')
@@ -135,23 +150,22 @@ class UserAgent:
         elif isinstance(msg, SipResponse):
             match msg.method:
                 case 'INVITE':
-                    self.activeInvite = transaction
+                    self.sessionManager.activeInvite = transaction
                     if msg.statusCode.isSuccessful():
                         # Create a new dialog
-                        transaction.dialog = Dialog(transaction.callID, transaction.fromTag, f'sip:IPCall@{transaction.localIP}:{transaction.localPort}', transaction.sequence, msg.toParams['tag'], f'sip:{transaction.remoteIP}:{transaction.remotePort}', msg.additionalHeaders['Contact'].strip('<>'))
+                        transaction.dialog = Dialog(msg.callID, msg.fromParams['tag'], msg.fromURI, msg.seqNum, msg.toParams['tag'], msg.toURI, msg.additionalHeaders['Contact'].strip('<>'))
                         # Get media ports from Session Description Protocol
                         self.remoteRtpPort, self.remoteRtcpPort = msg.parseSDP()
-                        # TODO this isn't correct w/ respect to the RFC: the UAC Core should handle acking 200 OK directly without creating a new transaction
-                        # Review RFC section 13.2.2.4 for more details
-                        # Ack in seperate transaction
-                        newTransaction = ClientTransaction(self.handle, self.transport.send, "ACK", (self.localIP, self.localPort), (self.remoteIP, self.remotePort), self.dialog)
-                        newTransaction.ack(autoClean=True)
+                        # Ack response
+                        ack = SipRequest.ackFromResponse(msg)
+                        self.transport.send(ack, ack.targetAddress)
 
                 case 'BYE':
                     transaction.dialog.terminate()
-                    self.cleanup()
+                    self.sessionManager.cleanup()
                 case 'CANCEL':
-                    self.cleanup()
+                    pass
+                    self.sessionManager.cleanup()
                 case _:
                     print('Unsupported response method')
 
