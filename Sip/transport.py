@@ -2,23 +2,20 @@
 import asyncio
 from typing import Callable
 
-# 1st Party
-from .sipMessage import SipMessageFactory
-
 class Transport():
     """Manage UDP transport for sending/receiving of SIP messages."""
-    def __init__(self, port, handleMsgCallback):
+    def __init__(self, port, handleMsg):
         self.port: int = port
-        self.handleMsgCallback: Callable = handleMsgCallback
+        self.handleMsg: Callable = handleMsg
         self._transport: asyncio.DatagramTransport = None
 
     def connection_made(self, transport):
         """Configure transport on connection established."""
         self._transport = transport
 
-    def send(self, msgObj, addr):
+    def send(self, msg, addr):
         """Send a Sip message to the specified address"""
-        data = str(msgObj).encode('utf-8')
+        data = str(msg).encode('utf-8')
         self._transport.sendto(data, addr)
         print(data)
 
@@ -26,8 +23,7 @@ class Transport():
         """Convert datagram to Sip message and pass to callback function."""
         try:
             msg = data.decode('utf-8')
-            msgObj = SipMessageFactory.fromStr(msg)
-            asyncio.create_task(self.handleMsgCallback(msgObj, addr))
+            asyncio.create_task(self.handleMsg(msg, addr))
         except Exception as e:
             pass
 

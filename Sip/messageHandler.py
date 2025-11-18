@@ -1,5 +1,5 @@
 # 1st Party
-from .sipMessage import SipMessage
+from .sipMessage import SipMessageFactory
 from .transaction import Transaction
 from .userAgent import UserAgent
 
@@ -12,11 +12,9 @@ class MessageHandler:
     """Interface between the transport layer and transactions/user agent."""
     userAgent: UserAgent
 
-    async def route(self, msgObj, addr):
+    async def route(self, msg, addr):
         """Route incoming Sip messages to matching transaction or User Agent if no match found"""
-        if not isinstance(msgObj, SipMessage):
-            raise ValueError
-        
+        msgObj = SipMessageFactory.fromStr(msg)
         transactionID = msgObj.getTransactionID()
         transaction = Transaction.getTransaction(transactionID)
 

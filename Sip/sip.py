@@ -15,6 +15,6 @@ class Sip(UserAgent):
     async def run(self):
         loop = asyncio.get_event_loop()
         _, self.transport = await loop.create_datagram_endpoint(
-        lambda: Transport(self.publicIP, handleMsgCallback=self.messageHandler.route),
+        lambda: Transport(self.publicIP, handleMsg=self.messageHandler.route),
         local_addr=("0.0.0.0", self.publicPort),
         )
