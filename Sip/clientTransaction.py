@@ -102,25 +102,25 @@ class ClientTransaction(Transaction):
                     except TimeoutError:
                         attempts += 1
 
-            # Await a non-Provisional response
-            if response.statusCode.isProvisional():
-                self.state = States.PROCEEDING
-                self.receivedProvisional.set()
-                while response.statusCode.isProvisional():
-                    await self.notifyTU(response)
-                    response = await self.recvQueue.get()
+                # Await a non-Provisional response
+                if response.statusCode.isProvisional():
+                    self.state = States.PROCEEDING
+                    self.receivedProvisional.set()
+                    while response.statusCode.isProvisional():
+                        await self.notifyTU(response)
+                        response = await self.recvQueue.get()
 
-            if response.statusCode.isSuccessful():
-                await self.notifyTU(response)
-                self.terminate()
-            elif response.statusCode.isUnsuccessful():
-                self.state = States.COMPLETED
-                await self.notifyTU(response)
-                self.ack()
-                # Acknowledge duplicate final responses before terminating transaction
-                asyncio.create_task(self._handleRetransmissions(duration=Transaction.ANSWER_DUPLICATES_DURATION))
-            else:
-                raise ValueError('Invalid SIP response code')
+                if response.statusCode.isSuccessful():
+                    await self.notifyTU(response)
+                    self.terminate()
+                elif response.statusCode.isUnsuccessful():
+                    self.state = States.COMPLETED
+                    await self.notifyTU(response)
+                    self.ack()
+                    # Acknowledge duplicate final responses before terminating transaction
+                    asyncio.create_task(self._handleRetransmissions(duration=Transaction.ANSWER_DUPLICATES_DURATION))
+                else:
+                    raise ValueError('Invalid SIP response code')
 
         except (ConnectionError, TimeoutError, ValueError) as e:
             # Pass exceptions to the Transaction User and terminate the transaction
@@ -160,13 +160,13 @@ class ClientTransaction(Transaction):
                     except TimeoutError:
                         attempts += 1
 
-            if response.statusCode.isFinal():
-                self.state = States.COMPLETED
-                await self.notifyTU(response)
-                # Buffer response retransmissions before terminating transaction
-                asyncio.create_task(self._handleRetransmissions(duration=Transaction.T4))
-            else:
-                raise ValueError('Invalid SIP response code')
+                if response.statusCode.isFinal():
+                    self.state = States.COMPLETED
+                    await self.notifyTU(response)
+                    # Buffer response retransmissions before terminating transaction
+                    asyncio.create_task(self._handleRetransmissions(duration=Transaction.T4))
+                else:
+                    raise ValueError('Invalid SIP response code')
 
         except (ConnectionError, TimeoutError, ValueError) as e:
             # Pass exceptions to the Transaction User and terminate the transaction
