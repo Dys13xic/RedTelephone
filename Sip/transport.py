@@ -4,8 +4,7 @@ from typing import Callable
 
 class Transport():
     """Manage UDP transport for sending/receiving of SIP messages."""
-    def __init__(self, port, handleMsg):
-        self.port: int = port
+    def __init__(self, handleMsg):
         self.handleMsg: Callable = handleMsg
         self._transport: asyncio.DatagramTransport = None
 
