@@ -51,7 +51,7 @@ class Voip(SessionManager):
         remoteIP = dialog.getRemoteIP()
         remoteRtpPort = self.remoteRtpPort or self.rtpPort
         remoteRtcpPort = self.remoteRtcpPort or self.rtcpPort
-        ssrc = Voip.genSSRC()
+        ssrc = int.from_bytes(urandom(4))
 
         loop = asyncio.get_event_loop()
         _, self.rtpEndpoint = await loop.create_datagram_endpoint(
@@ -80,7 +80,3 @@ class Voip(SessionManager):
 
         self.rtpEndpoint, self.rtcpEndpoint = None, None
         self.remoteRtpPort, self.remoteRtcpPort = None, None
-
-    @staticmethod
-    def genSSRC():
-        return int.from_bytes(urandom(4))
