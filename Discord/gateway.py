@@ -12,6 +12,13 @@ from enum import Enum
 DEFAULT_ENDPOINT = 'wss://gateway.discord.gg/'
 DEFAULT_PARAMS = '&encoding=json'
 
+class GatewayReconnect(Exception):
+    """Discord OpCode request for reconnection."""
+
+    def __init__(self, resumable):
+        self.resume = resumable
+
+
 class OpCodes(Enum):
     """Enum class of sent/received gateway message OpCodes."""
     EVENT_DISPATCH = 0
@@ -85,6 +92,8 @@ class Gateway(GatewayConnection):
                 else:
                     self._stop(clean=True)
                     break
+            except GatewayReconnect as e:
+                self._stop(clean=not e.resumable)
 
     def _clean(self):
         """Revert session specific properties."""
@@ -154,11 +163,11 @@ class Gateway(GatewayConnection):
                 await self.send(msgObj)
 
             case OpCodes.RECONNECT:
-                self._stop(clean=False)
+                raise GatewayReconnect(resumable=True)
 
             case OpCodes.INVALID_SESSION:
-                clean = not msgObj.d
-                self._stop(clean)
+                resumable = msgObj.d
+                raise GatewayReconnect(resumable)
 
             # TODO is timer needed to verify heartbeat ack and connection still open?
             case OpCodes.HEARTBEAT_ACK:
