@@ -45,11 +45,8 @@ class CloseCodes(Enum):
     DISALLOWED_INTENT = 4014
 
     def reconnectable(self):
-        if self not in [CloseCodes.AUTHENTICATION_FAILED, CloseCodes.INVALID_SHARD, CloseCodes.SHARDING_REQUIRED, CloseCodes.INVALID_API_VERSION,
-                             CloseCodes.INVALID_INTENT, CloseCodes.DISALLOWED_INTENT]:
-            return False
-        else:
-            return True
+        return self not in [CloseCodes.AUTHENTICATION_FAILED, CloseCodes.INVALID_SHARD, CloseCodes.SHARDING_REQUIRED,
+                            CloseCodes.INVALID_API_VERSION, CloseCodes.INVALID_INTENT, CloseCodes.DISALLOWED_INTENT]
 
 class Gateway(GatewayConnection):
     """Manage gateway state and handling of incoming/outgoing gateway messages."""
@@ -77,7 +74,13 @@ class Gateway(GatewayConnection):
             except websockets.exceptions.ConnectionClosedOK:
                 self._stop(clean=True)
             except websockets.exceptions.ConnectionClosedError as e:
-                if CloseCodes(e.code).reconnectable():
+                try:
+                    reconnect = CloseCodes(e.code).reconnectable()
+                except ValueError:
+                    # Treat unrecongized close codes as reconnectable
+                    reconnect = True
+
+                if reconnect:
                     self._stop(clean=False)
                 else:
                     self._stop(clean=True)
@@ -117,7 +120,7 @@ class Gateway(GatewayConnection):
                 match msgObj.t:
                     case 'READY':
                         self.userID = msgObj.d['user']['id']
-                        self.setEndpoint = msgObj.d['resume_gateway_url']
+                        self.endpoint = msgObj.d['resume_gateway_url']
                         self.sessionID = msgObj.d['session_id']
 
                     case 'MESSAGE_CREATE':
