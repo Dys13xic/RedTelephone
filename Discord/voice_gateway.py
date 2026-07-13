@@ -6,6 +6,7 @@ from rtp import RtpEndpoint
 
 # 3rd Party
 import websockets
+import dave
 
 # Standard Library
 import asyncio
@@ -15,6 +16,7 @@ from enum import Enum
 DISCORD_RTP_PORT = 5003
 VOICEGATEWAY_DELAY = 0
 RECONNECT_ATTEMPTS = 2
+MAX_DAVE_VERSION = 1
 
 class SpeakingModes(Enum):
     """Enum class of speaking modes for SPEAKING voice gateway messages."""
@@ -48,6 +50,11 @@ class OpCodes(Enum):
     DAVE_MLS_ANNOUNCE_COMMIT_TRANSACTION = 29
     DAVE_MLS_WELCOME = 30
     DAVE_MLS_INVALID_COMMIT_WELCOME = 31
+
+    def isBinary(self):
+        """Returns whether the specified payload is in binary."""
+        return self in [OpCodes.DAVE_MLS_EXTERNAL_SENDER, OpCodes.DAVE_MLS_KEY_PACKAGE, OpCodes.DAVE_MLS_PROPOSALS, OpCodes.DAVE_MLS_COMMIT_WELCOME,
+                    OpCodes.DAVE_MLS_ANNOUNCE_COMMIT_TRANSACTION, OpCodes.DAVE_MLS_WELCOME, OpCodes.DAVE_MLS_INVALID_COMMIT_WELCOME]
 
 class CloseCodes(Enum):
     """Enum class of voice gateway close codes."""
@@ -83,6 +90,7 @@ class VoiceGateway(GatewayConnection):
         self.endpoint: str = None
         self.ssrc: int = None
         self.rtpEndpoint: RtpEndpoint = None
+        self.daveVersion = MAX_DAVE_VERSION
         super().__init__(self.token, self.endpoint)
 
     async def connect(self):
@@ -123,21 +131,28 @@ class VoiceGateway(GatewayConnection):
 
     async def processMsg(self, msgObj):
         """Process incoming gateway messages."""
+        opCode = OpCodes(msgObj.op)
+        eventName = opCode.name
+        args = []
+
         # Update sequence number
         if(msgObj.s):
             self.lastSequence = msgObj.s
 
-        eventName = OpCodes(msgObj.op).name
-        args = []
+        # Decode binary payloads
+        if (opCode.isBinary()):
+            msgObj.d = msgObj.d.decode('utf-8')
 
-        match OpCodes(msgObj.op):
+        match opCode:
             case OpCodes.HELLO:
                 # Update heartbeat interval
                 if("heartbeat_interval" in msgObj.d):
                     self.setHeartbeatInterval(msgObj.d["heartbeat_interval"])
                     
                 # Identify to API
-                data = {'server_id': self.serverID, 'user_id': self.gateway.userID, 'session_id': self.gateway.sessionID, 'token': self.token}
+                data = {'server_id': self.serverID, 'user_id': self.gateway.userID, 'session_id': self.gateway.sessionID,
+                        'token': self.token, 'max_dave_protocol_version': MAX_DAVE_VERSION
+                }
                 identifyMsg = GatewayMessage(OpCodes.IDENTIFY.value, data)
                 await self.send(identifyMsg)
 
@@ -162,6 +177,7 @@ class VoiceGateway(GatewayConnection):
 
             case OpCodes.SESSION_DESCRIPTION:
                 self.rtpEndpoint.setSecretKey(msgObj.d['secret_key'])
+                self.daveVersion = msgObj.d['dave_protocol_version']
 
             # TODO is timer needed to verify heartbeat ack and connection still open?
             case OpCodes.HEARTBEAT_ACK:
